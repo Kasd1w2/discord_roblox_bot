@@ -218,5 +218,6 @@ botClient.on('interactionCreate', async interaction => {
 });
 
 // Initialize Services
-webApp.listen(3000, () => console.log('HTTP Webhook Listener running on port 3000'));
+const port = process.env.PORT || 3000;
+webApp.listen(port, () => console.log(`HTTP Webhook Listener running on port ${port}`));
 botClient.login(process.env.DISCORD_TOKEN);

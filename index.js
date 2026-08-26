@@ -205,16 +205,9 @@ botClient.on('interactionCreate', async interaction => {
                 }
             });
 
-            const linkButton = new ButtonBuilder()
-                .setLabel('Proceed to Checkout')
-                .setURL(checkoutSession.url)
-                .setStyle(ButtonStyle.Link);
-
-            // Instead of a Link Button (which has a 512-character limit), 
-            // send it as a clean clickable markdown link in the ephemeral message:
             await interaction.editReply({
                 content: `Checkout session generated successfully! Click the link below to finalize your payment:\n\n🔗 **[Click Here to Open Checkout](${checkoutSession.url})**`,
-                components: [] // No components needed, avoiding the character length error completely
+                components: []
             });
             
         } catch (stripeError) {

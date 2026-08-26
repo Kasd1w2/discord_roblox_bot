@@ -210,10 +210,13 @@ botClient.on('interactionCreate', async interaction => {
                 .setURL(checkoutSession.url)
                 .setStyle(ButtonStyle.Link);
 
+            // Instead of a Link Button (which has a 512-character limit), 
+            // send it as a clean clickable markdown link in the ephemeral message:
             await interaction.editReply({
-                content: 'Click below to safely finalize your transaction:',
-                components: [new ActionRowBuilder().addComponents(linkButton)]
+                content: `Checkout session generated successfully! Click the link below to finalize your payment:\n\n🔗 **[Click Here to Open Checkout](${checkoutSession.url})**`,
+                components: [] // No components needed, avoiding the character length error completely
             });
+            
         } catch (stripeError) {
             console.error('Stripe session creation error:', stripeError);
             await interaction.editReply({ content: 'Encountered an error generating the checkout link. Please try again later.' });

@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const mongoose = require('mongoose');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { 
     Client, 
@@ -15,18 +16,25 @@ const {
     PermissionFlagsBits
 } = require('discord.js');
 
+// --- DATABASE CONNECTIVITY ---
+mongoose.connect(process.env.MONGO_URI)
+    .then(() => console.log('Successfully connected to MongoDB Atlas.'))
+    .catch(err => console.error('MongoDB connection error:', err));
+
+const InventorySchema = new mongoose.Schema({
+    itemId: { type: String, required: true, unique: true },
+    codes: [String]
+});
+const Inventory = mongoose.model('Inventory', InventorySchema);
+
+const LedgerSchema = new mongoose.Schema({
+    discordId: { type: String, required: true, unique: true },
+    purchases: [{ item: String, code: String }]
+});
+const Ledger = mongoose.model('Ledger', LedgerSchema);
+
 const webApp = express();
 const botClient = new Client({ intents: [GatewayIntentBits.Guilds] });
-
-// --- MOCK INVENTORY & DATABASE STORAGE ---
-// ⚠️ WARNING: On Render's free tier, this in-memory storage resets when the server restarts or sleeps.
-const storeDatabase = {
-    stockpile: {
-        'white_cane': ['RBX-CANE-1111', 'RBX-CANE-2222'],
-        'red_valk': ['RBX-VALK-3333', 'RBX-VALK-4444']
-    },
-    ledger: {} // Maps Discord ID to array of fulfilled purchases
-};
 
 // --- STRIPE WEBHOOK ENDPOINT ---
 webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
@@ -50,20 +58,21 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         const targetItemId = checkoutSession.metadata.item_id;
         const guildId = checkoutSession.metadata.guild_id;
 
-        const availableCodes = storeDatabase.stockpile[targetItemId];
-        const assignedCode = (availableCodes && availableCodes.length > 0) ? availableCodes.shift() : null;
+        try {
+            const itemRecord = await Inventory.findOne({ itemId: targetItemId });
 
-        if (assignedCode) {
-            if (!storeDatabase.ledger[buyerDiscordId]) {
-                storeDatabase.ledger[buyerDiscordId] = [];
-            }
-            storeDatabase.ledger[buyerDiscordId].push({ item: targetItemId, code: assignedCode });
+            if (itemRecord && itemRecord.codes.length > 0) {
+                const assignedCode = itemRecord.codes.shift();
+                await itemRecord.save();
 
-            try {
-                // Fetch the Discord Server (Guild) where the button was clicked
+                let userLedger = await Ledger.findOne({ discordId: buyerDiscordId });
+                if (!userLedger) {
+                    userLedger = new Ledger({ discordId: buyerDiscordId, purchases: [] });
+                }
+                userLedger.purchases.push({ item: targetItemId, code: assignedCode });
+                await userLedger.save();
+
                 const guild = await botClient.guilds.fetch(guildId);
-
-                // Create a private channel visible only to the buyer and the bot
                 const orderChannel = await guild.channels.create({
                     name: `order-${targetItemId}`,
                     type: ChannelType.GuildText,
@@ -91,14 +100,13 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
                     ],
                 });
 
-                // Send the code to the newly created private channel
                 await orderChannel.send(`Hey <@${buyerDiscordId}>, 🛍️ **Order Fulfilled!**\nProduct: \`${targetItemId}\`\nYour Code: **\`${assignedCode}\`**\n\n*Please copy and save this code!*`);
-                console.log(`Successfully created private channel for item ${targetItemId} and delivered code to user ID ${buyerDiscordId}`);
-            } catch (channelError) {
-                console.error(`Failed to create private channel for user ${buyerDiscordId}. Code safely preserved in ledger. Error:`, channelError);
+                console.log(`Fulfilled order for ${targetItemId} to user ${buyerDiscordId}`);
+            } else {
+                console.error(`CRITICAL STOCK ERROR: Out of stock for ${targetItemId}!`);
             }
-        } else {
-            console.error(`CRITICAL STOCK ERROR: User ${buyerDiscordId} completed checkout for ${targetItemId}, but inventory is empty!`);
+        } catch (dbErr) {
+            console.error('Database query error during fulfillment:', dbErr);
         }
     }
 
@@ -117,7 +125,13 @@ const appCommands = [
         .addStringOption(opt => opt.setName('image_url').setDescription('Thumbnail Image URL').setRequired(true)),
     new SlashCommandBuilder()
         .setName('my-codes')
-        .setDescription('Inspect your previously purchased items')
+        .setDescription('Inspect your previously purchased items'),
+    new SlashCommandBuilder()
+        .setName('restock')
+        .setDescription('Add stock codes to an item')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+        .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID key').setRequired(true))
+        .addStringOption(opt => opt.setName('codes').setDescription('Comma-separated codes (e.g. CODE1,CODE2)').setRequired(true))
 ];
 
 botClient.once('clientReady', async () => {
@@ -169,7 +183,9 @@ botClient.on('interactionCreate', async interaction => {
         }
 
         if (commandLabel === 'my-codes') {
-            const history = storeDatabase.ledger[interaction.user.id] || [];
+            const userLedger = await Ledger.findOne({ discordId: interaction.user.id });
+            const history = userLedger ? userLedger.purchases : [];
+
             if (history.length === 0) {
                 return interaction.reply({ content: "You don't have any purchase records on file.", flags: 64 });
             }
@@ -177,11 +193,25 @@ botClient.on('interactionCreate', async interaction => {
             const formattedItems = history.map(entry => `• **${entry.item}**: \`${entry.code}\``).join('\n');
             await interaction.reply({ content: `**Your Active Codes:**\n${formattedItems}`, flags: 64 });
         }
+
+        if (commandLabel === 'restock') {
+            const itemId = interaction.options.getString('item_id');
+            const newCodes = interaction.options.getString('codes').split(',').map(c => c.trim());
+
+            let itemRecord = await Inventory.findOne({ itemId });
+            if (!itemRecord) {
+                itemRecord = new Inventory({ itemId, codes: [] });
+            }
+
+            itemRecord.codes.push(...newCodes);
+            await itemRecord.save();
+
+            await interaction.reply({ content: `Added ${newCodes.length} codes to \`${itemId}\`. Total stock: ${itemRecord.codes.length}`, flags: 64 });
+        }
     }
 
     if (interaction.isButton() && interaction.customId.startsWith('purchase_action|')) {
         await interaction.deferReply({ flags: 64 });
-
         const [, productKey, productPrice] = interaction.customId.split('|');
 
         try {
@@ -209,7 +239,6 @@ botClient.on('interactionCreate', async interaction => {
                 content: `Checkout session generated successfully! Click the link below to finalize your payment:\n\n🔗 **[Click Here to Open Checkout](${checkoutSession.url})**`,
                 components: []
             });
-            
         } catch (stripeError) {
             console.error('Stripe session creation error:', stripeError);
             await interaction.editReply({ content: 'Encountered an error generating the checkout link. Please try again later.' });

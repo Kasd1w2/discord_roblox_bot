@@ -34,9 +34,16 @@ const LedgerSchema = new mongoose.Schema({
 const Ledger = mongoose.model('Ledger', LedgerSchema);
 
 const webApp = express();
-const botClient = new Client({ intents: [GatewayIntentBits.Guilds] });
+const botClient = new Client({ 
+    intents: [
+        GatewayIntentBits.Guilds, 
+        GatewayIntentBits.GuildMessages, 
+        GatewayIntentBits.GuildMessageReactions,
+        GatewayIntentBits.MessageContent
+    ] 
+});
 
-// --- STRIPE WEBHOOK ENDPOINT ---
+// --- STRIPE WEBHOOK ENDPOINT (LIMITED / TRADE MODE) ---
 webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
     const signatureHeader = req.headers['stripe-signature'];
     let stripeEvent;
@@ -59,54 +66,51 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         const guildId = checkoutSession.metadata.guild_id;
 
         try {
-            const itemRecord = await Inventory.findOne({ itemId: targetItemId });
+            const guild = await botClient.guilds.fetch(guildId);
+            const orderChannel = await guild.channels.create({
+                name: `trade-${targetItemId}`,
+                type: ChannelType.GuildText,
+                permissionOverwrites: [
+                    {
+                        id: guild.roles.everyone.id,
+                        deny: [PermissionFlagsBits.ViewChannel],
+                    },
+                    {
+                        id: buyerDiscordId,
+                        allow: [
+                            PermissionFlagsBits.ViewChannel, 
+                            PermissionFlagsBits.SendMessages, 
+                            PermissionFlagsBits.ReadMessageHistory,
+                            PermissionFlagsBits.AddReactions
+                        ],
+                    },
+                    {
+                        id: botClient.user.id,
+                        allow: [
+                            PermissionFlagsBits.ViewChannel, 
+                            PermissionFlagsBits.SendMessages, 
+                            PermissionFlagsBits.ReadMessageHistory,
+                            PermissionFlagsBits.AddReactions
+                        ],
+                    }
+                ],
+            });
 
-            if (itemRecord && itemRecord.codes.length > 0) {
-                const assignedCode = itemRecord.codes.shift();
-                await itemRecord.save();
+            const deliveryMessage = await orderChannel.send(
+                `Hey <@${buyerDiscordId}>, 🛍️ **Payment Successful!**\n` +
+                `Item Purchased: \`${targetItemId}\`\n\n` +
+                `Please send your **Roblox Username** in this channel so staff can send you the trade offer.\n` +
+                `Once you receive and accept your limited item on Roblox, please confirm below:\n` +
+                `✅ **Click Check** if you received your item.\n` +
+                `❌ **Click X** if there is a problem (this will ping management).`
+            );
 
-                let userLedger = await Ledger.findOne({ discordId: buyerDiscordId });
-                if (!userLedger) {
-                    userLedger = new Ledger({ discordId: buyerDiscordId, purchases: [] });
-                }
-                userLedger.purchases.push({ item: targetItemId, code: assignedCode });
-                await userLedger.save();
+            await deliveryMessage.react('✅');
+            await deliveryMessage.react('❌');
 
-                const guild = await botClient.guilds.fetch(guildId);
-                const orderChannel = await guild.channels.create({
-                    name: `order-${targetItemId}`,
-                    type: ChannelType.GuildText,
-                    permissionOverwrites: [
-                        {
-                            id: guild.roles.everyone.id,
-                            deny: [PermissionFlagsBits.ViewChannel],
-                        },
-                        {
-                            id: buyerDiscordId,
-                            allow: [
-                                PermissionFlagsBits.ViewChannel, 
-                                PermissionFlagsBits.SendMessages, 
-                                PermissionFlagsBits.ReadMessageHistory
-                            ],
-                        },
-                        {
-                            id: botClient.user.id,
-                            allow: [
-                                PermissionFlagsBits.ViewChannel, 
-                                PermissionFlagsBits.SendMessages, 
-                                PermissionFlagsBits.ReadMessageHistory
-                            ],
-                        }
-                    ],
-                });
-
-                await orderChannel.send(`Hey <@${buyerDiscordId}>, 🛍️ **Order Fulfilled!**\nProduct: \`${targetItemId}\`\nYour Code: **\`${assignedCode}\`**\n\n*Please copy and save this code!*`);
-                console.log(`Fulfilled order for ${targetItemId} to user ${buyerDiscordId}`);
-            } else {
-                console.error(`CRITICAL STOCK ERROR: Out of stock for ${targetItemId}!`);
-            }
+            console.log(`Created limited trade channel for item ${targetItemId} and user ${buyerDiscordId}`);
         } catch (dbErr) {
-            console.error('Database query error during fulfillment:', dbErr);
+            console.error('Error creating order channel during fulfillment:', dbErr);
         }
     }
 
@@ -160,13 +164,31 @@ botClient.once('clientReady', async () => {
     }
 });
 
-// --- EVENT ROUTING ---
+// --- EVENT ROUTING & REACTION LISTENER ---
+botClient.on('messageReactionAdd', async (reaction, user) => {
+    if (user.bot) return;
+
+    if (reaction.partial) {
+        try { await reaction.fetch(); } catch (err) { return; }
+    }
+
+    if (reaction.message.channel.name.startsWith('trade-')) {
+        const ADMIN_ROLE_ID = '1542306776622309437';
+
+        if (reaction.emoji.name === '✅') {
+            await reaction.message.channel.send(`✅ **Order confirmed complete by <@${user.id}>!** Thank you for your purchase.`);
+        } 
+        else if (reaction.emoji.name === '❌') {
+            await reaction.message.channel.send(`❌ **ISSUE REPORTED:** <@&${ADMIN_ROLE_ID}>, <@${user.id}> reported a problem with this trade delivery! Please assist.`);
+        }
+    }
+});
+
 botClient.on('interactionCreate', async interaction => {
     if (interaction.isChatInputCommand()) {
         const commandLabel = interaction.commandName;
         const ADMIN_ROLE_ID = '1542306776622309437';
 
-        // Check Admin Role for restricted commands
         if (['setup-store', 'restock', 'stock', 'remove-stock'].includes(commandLabel)) {
             if (!interaction.member.roles.cache.has(ADMIN_ROLE_ID)) {
                 return interaction.reply({ 
@@ -177,7 +199,9 @@ botClient.on('interactionCreate', async interaction => {
         }
 
         if (commandLabel === 'setup-store') {
-            const targetForum = interaction.options.getChannel('forum_channel');
+            const selectedChannelOption = interaction.options.getChannel('forum_channel');
+            const targetForum = await interaction.guild.channels.fetch(selectedChannelOption.id);
+            
             const productTitle = interaction.options.getString('title');
             const productPrice = interaction.options.getNumber('price');
             const productKey = interaction.options.getString('item_id');
@@ -190,7 +214,7 @@ botClient.on('interactionCreate', async interaction => {
                 .setColor(0x2B2D31)
                 .addFields(
                     { name: 'Price', value: `$${productPrice} USD`, inline: true },
-                    { name: 'Delivery', value: 'Automated (Private Channel)', inline: true },
+                    { name: 'Delivery', value: 'Manual Trade (Private Channel)', inline: true },
                     { name: '\u200B', value: '\u200B', inline: true },
                     { name: 'Rolimons Link', value: `[View item](${robloxLink})`, inline: false }
                 )
@@ -203,7 +227,6 @@ botClient.on('interactionCreate', async interaction => {
 
             const buttonRow = new ActionRowBuilder().addComponents(buyActionBtn);
 
-            // Create a thread post inside the selected Forum channel
             await targetForum.threads.create({
                 name: productTitle,
                 message: {
@@ -281,6 +304,19 @@ botClient.on('interactionCreate', async interaction => {
         const [, productKey, productPrice] = interaction.customId.split('|');
 
         try {
+            // Check inventory stock in MongoDB
+            const itemRecord = await Inventory.findOne({ itemId: productKey });
+            
+            if (itemRecord && itemRecord.codes.length === 0) {
+                // Send temporary notice tagging the user, then delete it after 5 seconds
+                const outOfStockMsg = await interaction.channel.send(`❌ <@${interaction.user.id}>, sorry! **${productKey}** is currently **out of stock**.`);
+                setTimeout(() => {
+                    outOfStockMsg.delete().catch(() => {});
+                }, 5000);
+
+                return interaction.editReply({ content: '❌ This item is out of stock.' });
+            }
+
             const checkoutSession = await stripe.checkout.sessions.create({
                 payment_method_types: ['card'],
                 line_items: [{

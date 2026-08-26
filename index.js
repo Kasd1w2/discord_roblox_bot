@@ -117,8 +117,13 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 const appCommands = [
     new SlashCommandBuilder()
         .setName('setup-store')
-        .setDescription('Deploy a dynamic product listing embed (Admin)')
-        .addStringOption(opt => opt.setName('title').setDescription('Display Title').setRequired(true))
+        .setDescription('Create a new product post inside a Forum Channel (Admin)')
+        .addChannelOption(opt => 
+            opt.setName('forum_channel')
+               .setDescription('Select the Forum channel to post in')
+               .addChannelTypes(ChannelType.GuildForum)
+               .setRequired(true))
+        .addStringOption(opt => opt.setName('title').setDescription('Display Title / Post Name').setRequired(true))
         .addNumberOption(opt => opt.setName('price').setDescription('Cost in USD').setRequired(true))
         .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID matching inventory key').setRequired(true))
         .addStringOption(opt => opt.setName('catalog_url').setDescription('Roblox Catalog link').setRequired(true))
@@ -172,6 +177,7 @@ botClient.on('interactionCreate', async interaction => {
         }
 
         if (commandLabel === 'setup-store') {
+            const targetForum = interaction.options.getChannel('forum_channel');
             const productTitle = interaction.options.getString('title');
             const productPrice = interaction.options.getNumber('price');
             const productKey = interaction.options.getString('item_id');
@@ -180,6 +186,7 @@ botClient.on('interactionCreate', async interaction => {
 
             const listingEmbed = new EmbedBuilder()
                 .setTitle(`${productTitle}`)
+                .setDescription(`Click on the button below to purchase!`)
                 .setColor(0x2B2D31)
                 .addFields(
                     { name: 'Price', value: `$${productPrice} USD`, inline: true },
@@ -187,7 +194,7 @@ botClient.on('interactionCreate', async interaction => {
                     { name: '\u200B', value: '\u200B', inline: true },
                     { name: 'Rolimons Link', value: `[View item](${robloxLink})`, inline: false }
                 )
-                .setThumbnail(thumbnailPic);
+                .setImage(thumbnailPic);
 
             const buyActionBtn = new ButtonBuilder()
                 .setCustomId(`purchase_action|${productKey}|${productPrice}`)
@@ -196,8 +203,16 @@ botClient.on('interactionCreate', async interaction => {
 
             const buttonRow = new ActionRowBuilder().addComponents(buyActionBtn);
 
-            await interaction.channel.send({ embeds: [listingEmbed], components: [buttonRow] });
-            await interaction.reply({ content: 'Storefront panel deployed successfully.', flags: 64 });
+            // Create a thread post inside the selected Forum channel
+            await targetForum.threads.create({
+                name: productTitle,
+                message: {
+                    embeds: [listingEmbed],
+                    components: [buttonRow]
+                }
+            });
+
+            await interaction.reply({ content: `✅ Successfully created forum post for **${productTitle}**!`, flags: 64 });
         }
 
         if (commandLabel === 'my-codes') {
@@ -252,7 +267,6 @@ botClient.on('interactionCreate', async interaction => {
 
             const originalLength = itemRecord.codes.length;
             
-            // Filter out the codes that match the ones the user wants to remove
             itemRecord.codes = itemRecord.codes.filter(code => !codesToRemove.includes(code));
             await itemRecord.save();
 

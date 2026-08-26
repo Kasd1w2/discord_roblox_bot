@@ -117,7 +117,7 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 const appCommands = [
     new SlashCommandBuilder()
         .setName('setup-store')
-        .setDescription('Deploy a dynamic product listing embed')
+        .setDescription('Deploy a dynamic product listing embed (Admin)')
         .addStringOption(opt => opt.setName('title').setDescription('Display Title').setRequired(true))
         .addNumberOption(opt => opt.setName('price').setDescription('Cost in USD').setRequired(true))
         .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID matching inventory key').setRequired(true))
@@ -128,10 +128,17 @@ const appCommands = [
         .setDescription('Inspect your previously purchased items'),
     new SlashCommandBuilder()
         .setName('restock')
-        .setDescription('Add stock codes to an item')
-        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+        .setDescription('Add stock codes to an item (Admin)')
         .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID key').setRequired(true))
-        .addStringOption(opt => opt.setName('codes').setDescription('Comma-separated codes (e.g. CODE1,CODE2)').setRequired(true))
+        .addStringOption(opt => opt.setName('codes').setDescription('Comma-separated codes (e.g. CODE1,CODE2)').setRequired(true)),
+    new SlashCommandBuilder()
+        .setName('stock')
+        .setDescription('Check available inventory stock levels (Admin)'),
+    new SlashCommandBuilder()
+        .setName('remove-stock')
+        .setDescription('Remove specific codes from an item (Admin)')
+        .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID key').setRequired(true))
+        .addStringOption(opt => opt.setName('codes').setDescription('Comma-separated codes to remove').setRequired(true))
 ];
 
 botClient.once('clientReady', async () => {
@@ -152,6 +159,17 @@ botClient.once('clientReady', async () => {
 botClient.on('interactionCreate', async interaction => {
     if (interaction.isChatInputCommand()) {
         const commandLabel = interaction.commandName;
+        const ADMIN_ROLE_ID = '1542306776622309437';
+
+        // Check Admin Role for restricted commands
+        if (['setup-store', 'restock', 'stock', 'remove-stock'].includes(commandLabel)) {
+            if (!interaction.member.roles.cache.has(ADMIN_ROLE_ID)) {
+                return interaction.reply({ 
+                    content: '🛑 You do not have permission to use this command.', 
+                    flags: 64 
+                });
+            }
+        }
 
         if (commandLabel === 'setup-store') {
             const productTitle = interaction.options.getString('title');
@@ -206,7 +224,41 @@ botClient.on('interactionCreate', async interaction => {
             itemRecord.codes.push(...newCodes);
             await itemRecord.save();
 
-            await interaction.reply({ content: `Added ${newCodes.length} codes to \`${itemId}\`. Total stock: ${itemRecord.codes.length}`, flags: 64 });
+            await interaction.reply({ content: `✅ Added ${newCodes.length} codes to \`${itemId}\`. Total stock: ${itemRecord.codes.length}`, flags: 64 });
+        }
+
+        if (commandLabel === 'stock') {
+            const allInventory = await Inventory.find({});
+            
+            if (!allInventory || allInventory.length === 0) {
+                return interaction.reply({ content: 'No inventory records found in the database.', flags: 64 });
+            }
+
+            const stockList = allInventory
+                .map(item => `• **${item.itemId}**: ${item.codes.length} code(s) remaining`)
+                .join('\n');
+
+            await interaction.reply({ content: `📦 **Current Inventory Stock:**\n${stockList}`, flags: 64 });
+        }
+
+        if (commandLabel === 'remove-stock') {
+            const itemId = interaction.options.getString('item_id');
+            const codesToRemove = interaction.options.getString('codes').split(',').map(c => c.trim());
+
+            let itemRecord = await Inventory.findOne({ itemId });
+            if (!itemRecord) {
+                return interaction.reply({ content: `❌ Item \`${itemId}\` not found in database.`, flags: 64 });
+            }
+
+            const originalLength = itemRecord.codes.length;
+            
+            // Filter out the codes that match the ones the user wants to remove
+            itemRecord.codes = itemRecord.codes.filter(code => !codesToRemove.includes(code));
+            await itemRecord.save();
+
+            const removedCount = originalLength - itemRecord.codes.length;
+
+            await interaction.reply({ content: `🗑️ Removed ${removedCount} codes from \`${itemId}\`. Remaining stock: ${itemRecord.codes.length}`, flags: 64 });
         }
     }
 

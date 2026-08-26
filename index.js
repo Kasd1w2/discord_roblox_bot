@@ -10,13 +10,16 @@ const {
     EmbedBuilder, 
     ActionRowBuilder, 
     ButtonBuilder, 
-    ButtonStyle 
+    ButtonStyle,
+    ChannelType,
+    PermissionFlagsBits
 } = require('discord.js');
 
 const webApp = express();
 const botClient = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 // --- MOCK INVENTORY & DATABASE STORAGE ---
+// ⚠️ WARNING: On Render's free tier, this in-memory storage resets when the server restarts or sleeps.
 const storeDatabase = {
     stockpile: {
         'white_cane': ['RBX-CANE-1111', 'RBX-CANE-2222'],
@@ -45,6 +48,7 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         const checkoutSession = stripeEvent.data.object;
         const buyerDiscordId = checkoutSession.metadata.discord_user_id;
         const targetItemId = checkoutSession.metadata.item_id;
+        const guildId = checkoutSession.metadata.guild_id;
 
         const availableCodes = storeDatabase.stockpile[targetItemId];
         const assignedCode = (availableCodes && availableCodes.length > 0) ? availableCodes.shift() : null;
@@ -56,11 +60,42 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
             storeDatabase.ledger[buyerDiscordId].push({ item: targetItemId, code: assignedCode });
 
             try {
-                const targetUser = await botClient.users.fetch(buyerDiscordId);
-                await targetUser.send(`🛍️ **Order Fulfilled!**\nProduct: \`${targetItemId}\`\nYour Code: **\`${assignedCode}\`**`);
-                console.log(`Successfully delivered code for ${targetItemId} to user ${targetUser.tag}`);
-            } catch (dmError) {
-                console.log(`Failed to DM user ${buyerDiscordId}. Code safely preserved in internal ledger.`);
+                // Fetch the Discord Server (Guild) where the button was clicked
+                const guild = await botClient.guilds.fetch(guildId);
+
+                // Create a private channel visible only to the buyer and the bot
+                const orderChannel = await guild.channels.create({
+                    name: `order-${targetItemId}`,
+                    type: ChannelType.GuildText,
+                    permissionOverwrites: [
+                        {
+                            id: guild.roles.everyone.id,
+                            deny: [PermissionFlagsBits.ViewChannel],
+                        },
+                        {
+                            id: buyerDiscordId,
+                            allow: [
+                                PermissionFlagsBits.ViewChannel, 
+                                PermissionFlagsBits.SendMessages, 
+                                PermissionFlagsBits.ReadMessageHistory
+                            ],
+                        },
+                        {
+                            id: botClient.user.id,
+                            allow: [
+                                PermissionFlagsBits.ViewChannel, 
+                                PermissionFlagsBits.SendMessages, 
+                                PermissionFlagsBits.ReadMessageHistory
+                            ],
+                        }
+                    ],
+                });
+
+                // Send the code to the newly created private channel
+                await orderChannel.send(`Hey <@${buyerDiscordId}>, 🛍️ **Order Fulfilled!**\nProduct: \`${targetItemId}\`\nYour Code: **\`${assignedCode}\`**\n\n*Please copy and save this code!*`);
+                console.log(`Successfully created private channel for item ${targetItemId} and delivered code to user ID ${buyerDiscordId}`);
+            } catch (channelError) {
+                console.error(`Failed to create private channel for user ${buyerDiscordId}. Code safely preserved in ledger. Error:`, channelError);
             }
         } else {
             console.error(`CRITICAL STOCK ERROR: User ${buyerDiscordId} completed checkout for ${targetItemId}, but inventory is empty!`);
@@ -85,7 +120,7 @@ const appCommands = [
         .setDescription('Inspect your previously purchased items')
 ];
 
-botClient.once('ready', async () => {
+botClient.once('clientReady', async () => {
     console.log(`Bot operational as: ${botClient.user.tag}`);
     const restApi = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
@@ -116,45 +151,41 @@ botClient.on('interactionCreate', async interaction => {
                 .setColor(0x2B2D31)
                 .addFields(
                     { name: 'Price', value: `$${productPrice} USD`, inline: true },
-                    { name: 'Delivery', value: 'Automated', inline: true },
+                    { name: 'Delivery', value: 'Automated (Private Channel)', inline: true },
                     { name: '\u200B', value: '\u200B', inline: true },
                     { name: 'Rolimons Link', value: `[View item](${robloxLink})`, inline: false }
                 )
                 .setThumbnail(thumbnailPic);
 
             const buyActionBtn = new ButtonBuilder()
-    // Using a pipe delimiter to avoid underscore conflicts
-    .setCustomId(`purchase_action|${productKey}|${productPrice}`)
-    .setLabel(`Purchase ${productTitle}`)
-    .setStyle(ButtonStyle.Primary);
+                .setCustomId(`purchase_action|${productKey}|${productPrice}`)
+                .setLabel(`Purchase ${productTitle}`)
+                .setStyle(ButtonStyle.Primary);
 
             const buttonRow = new ActionRowBuilder().addComponents(buyActionBtn);
 
             await interaction.channel.send({ embeds: [listingEmbed], components: [buttonRow] });
-            await interaction.reply({ content: 'Storefront panel deployed successfully.', ephemeral: true });
+            await interaction.reply({ content: 'Storefront panel deployed successfully.', flags: 64 });
         }
 
         if (commandLabel === 'my-codes') {
             const history = storeDatabase.ledger[interaction.user.id] || [];
             if (history.length === 0) {
-                return interaction.reply({ content: "You don't have any purchase records on file.", ephemeral: true });
+                return interaction.reply({ content: "You don't have any purchase records on file.", flags: 64 });
             }
 
             const formattedItems = history.map(entry => `• **${entry.item}**: \`${entry.code}\``).join('\n');
-            await interaction.reply({ content: `**Your Active Codes:**\n${formattedItems}`, ephemeral: true });
+            await interaction.reply({ content: `**Your Active Codes:**\n${formattedItems}`, flags: 64 });
         }
     }
 
-    // Check for the new delimiter format
-if (interaction.isButton() && interaction.customId.startsWith('purchase_action|')) {
-    await interaction.deferReply({ ephemeral: true });
+    if (interaction.isButton() && interaction.customId.startsWith('purchase_action|')) {
+        await interaction.deferReply({ flags: 64 });
 
-    // Split by the pipe instead
-    const [, productKey, productPrice] = interaction.customId.split('|');
+        const [, productKey, productPrice] = interaction.customId.split('|');
 
-    try {
-        const checkoutSession = await stripe.checkout.sessions.create({
-            // ... (rest of your Stripe code stays exactly the same)
+        try {
+            const checkoutSession = await stripe.checkout.sessions.create({
                 payment_method_types: ['card'],
                 line_items: [{
                     price_data: {
@@ -169,7 +200,8 @@ if (interaction.isButton() && interaction.customId.startsWith('purchase_action|'
                 cancel_url: 'https://roblox.com',
                 metadata: {
                     discord_user_id: interaction.user.id,
-                    item_id: productKey
+                    item_id: productKey,
+                    guild_id: interaction.guild.id
                 }
             });
 
@@ -191,4 +223,4 @@ if (interaction.isButton() && interaction.customId.startsWith('purchase_action|'
 
 // Initialize Services
 webApp.listen(3000, () => console.log('HTTP Webhook Listener running on port 3000'));
-botClient.login(process.env.DISCORD_TOKEN); 
+botClient.login(process.env.DISCORD_TOKEN);

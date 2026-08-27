@@ -248,7 +248,7 @@ botClient.on('interactionCreate', async interaction => {
     if (interaction.isChatInputCommand()) {
         const commandLabel = interaction.commandName;
 
-        if (['setup-store', 'restock', 'stock', 'remove-stock', 'deliver', 'close', 'coupon-store'].includes(commandLabel)) {
+        if (['setup-store', 'restock', 'stock', 'remove-stock', 'deliver', 'close', 'coupon-store', 'give-coupon'].includes(commandLabel)) {
             if (!interaction.member.roles.cache.has(ADMIN_ROLE_ID)) {
                 return interaction.reply({ content: '🛑 You do not have permission to use this command.', flags: 64 });
             }

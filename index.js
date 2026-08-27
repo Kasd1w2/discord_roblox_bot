@@ -98,12 +98,10 @@ function generatePaymentMenu(productKey, productPrice, channelId) {
         .setPlaceholder('📂 Choose your payment method...')
         .addOptions([
             { label: 'Pay with Card (Stripe)', description: 'Instant automated delivery via Credit/Debit card', value: 'select_stripe', emoji: '💳' },
-            { label: 'Pay with Cryptocurrency', description: 'Pay using ETH, LTC, BTC, or SOL', value: 'select_crypto', emoji: '🪙' },
-            { label: 'Cancel Order', description: 'Discard transaction and close channel', value: 'select_cancel', emoji: '🗑️' }
+            { label: 'Pay with Cryptocurrency', description: 'Pay using ETH, LTC, BTC, or SOL', value: 'select_crypto', emoji: '🪙' }
         ]);
     return new ActionRowBuilder().addComponents(selectMenu);
 }
-
 function getCancelButtonRow() {
     const cancelBtn = new ButtonBuilder()
         .setCustomId('close_order')
@@ -708,17 +706,11 @@ botClient.on('interactionCreate', async interaction => {
         }
     }
 
-    // 6. Payment Method Selection (Stripe / Crypto / Cancel)
+    // 6. Payment Method Selection (Stripe / Crypto)
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith('payment_select|')) {
         const [, productKey, productPrice, channelId] = interaction.customId.split('|');
         const selectedValue = interaction.values[0];
         const orderChannel = await interaction.guild.channels.fetch(channelId);
-
-        if (selectedValue === 'select_cancel') {
-            await interaction.reply({ content: '🗑️ Order canceled. Closing channel in 5 seconds...', flags: 64 });
-            setTimeout(async () => { await orderChannel.delete().catch(() => {}); }, 5000);
-            return;
-        }
 
         if (selectedValue === 'select_stripe') {
             await interaction.deferUpdate();
@@ -779,16 +771,6 @@ botClient.on('interactionCreate', async interaction => {
             await interaction.message.delete().catch(() => {});
         }
     }
-
-    // --- TX SUBMISSION MODAL HANDLERS ---
-    if (interaction.isButton() && interaction.customId.startsWith('open_tx_modal|')) {
-        const [, productKey] = interaction.customId.split('|');
-        const txModal = new ModalBuilder().setCustomId(`submit_tx_form|${productKey}`).setTitle('Submit Crypto Payment Details');
-        const txInput = new TextInputBuilder().setCustomId('tx_hash_input').setLabel('Transaction Hash / ID / Proof').setStyle(TextInputStyle.Paragraph).setRequired(true);
-        txModal.addComponents(new ActionRowBuilder().addComponents(txInput));
-        await interaction.showModal(txModal);
-    }
-
     if (interaction.isModalSubmit() && interaction.customId.startsWith('submit_tx_form|')) {
         const [, productKey] = interaction.customId.split('|');
         const userTxProof = interaction.fields.getTextInputValue('tx_hash_input');

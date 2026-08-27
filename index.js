@@ -175,6 +175,10 @@ const appCommands = [
         .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID key').setRequired(true))
         .addStringOption(opt => opt.setName('codes').setDescription('Comma-separated codes to remove').setRequired(true)),
     new SlashCommandBuilder()
+        .setName('deliver')
+        .setDescription('Pull code from database and send code embed in current channel (Admin)')
+        .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID key to pull code from').setRequired(true)),
+    new SlashCommandBuilder()
         .setName('close')
         .setDescription('Close order channel and log successful/failed sale (Admin)')
         .addStringOption(opt => 
@@ -234,7 +238,7 @@ botClient.on('interactionCreate', async interaction => {
         const commandLabel = interaction.commandName;
         const ADMIN_ROLE_ID = '1542306776622309437';
 
-        if (['setup-store', 'restock', 'stock', 'remove-stock', 'close'].includes(commandLabel)) {
+        if (['setup-store', 'restock', 'stock', 'remove-stock', 'deliver', 'close'].includes(commandLabel)) {
             if (!interaction.member.roles.cache.has(ADMIN_ROLE_ID)) {
                 return interaction.reply({ 
                     content: '🛑 You do not have permission to use this command.', 
@@ -343,7 +347,43 @@ botClient.on('interactionCreate', async interaction => {
             await interaction.reply({ content: `🗑️ Removed ${removedCount} codes from \`${itemId}\`. Remaining stock: ${itemRecord.codes.length}`, flags: 64 });
         }
 
-        // --- NEW /CLOSE COMMAND HANDLER ---
+        // --- NEW /DELIVER COMMAND HANDLER ---
+        if (commandLabel === 'deliver') {
+            const itemId = interaction.options.getString('item_id');
+
+            if (!interaction.channel.name.startsWith('trade-')) {
+                return interaction.reply({ content: '🛑 This command can only be used inside a trade/order channel.', flags: 64 });
+            }
+
+            try {
+                const itemRecord = await Inventory.findOne({ itemId });
+
+                if (!itemRecord || itemRecord.codes.length === 0) {
+                    return interaction.reply({ content: `❌ Stock error: Item \`${itemId}\` is completely out of stock!`, flags: 64 });
+                }
+
+                // Extract buyer from channel name or let admin choose, but we can look for members or parse channel name
+                // Let's pull the next code from inventory
+                const deliveredCode = itemRecord.codes.shift();
+                await itemRecord.save();
+
+                const deliveryEmbed = new EmbedBuilder()
+                    .setTitle('🎁 Order Delivery')
+                    .setDescription(`Here is your requested code for **${itemId.toUpperCase()}**:\n\`\`\`${deliveredCode}\`\`\``)
+                    .setColor(0x00FF00)
+                    .setFooter({ text: 'Thank you for your business!' })
+                    .setTimestamp();
+
+                await interaction.reply({ content: `✅ Successfully pulled code from inventory and sent below:`, flags: 64 });
+                await interaction.channel.send({ embeds: [deliveryEmbed] });
+
+            } catch (err) {
+                console.error('Error in /deliver command:', err);
+                await interaction.reply({ content: 'An error occurred while attempting to deliver the code.', flags: 64 });
+            }
+        }
+
+        // --- /CLOSE COMMAND HANDLER ---
         if (commandLabel === 'close') {
             const status = interaction.options.getString('status');
             const method = interaction.options.getString('method') || 'Unknown Method';
@@ -360,7 +400,6 @@ botClient.on('interactionCreate', async interaction => {
                 const logChannel = await interaction.guild.channels.fetch(PUBLIC_LOG_CHANNEL_ID).catch(() => null);
 
                 if (logChannel) {
-                    // Extract item name from channel name format: trade-[item_id]-[username]
                     const channelNameParts = channel.name.split('-');
                     let parsedItem = channelNameParts.length > 1 ? channelNameParts[1].toUpperCase() : 'STORE ITEM';
 
@@ -606,5 +645,6 @@ botClient.on('interactionCreate', async interaction => {
 
 // Initialize Services
 const port = process.env.PORT || 3000;
+webApp.port = port;
 webApp.listen(port, () => console.log(`HTTP Webhook Listener running on port ${port}`));
 botClient.login(process.env.DISCORD_TOKEN);

@@ -176,7 +176,8 @@ const appCommands = [
         .addStringOption(opt => opt.setName('codes').setDescription('Comma-separated codes to remove').setRequired(true)),
     new SlashCommandBuilder()
         .setName('deliver')
-        .setDescription('Pull code from database and send code embed in current channel (Admin)')
+        .setDescription('Pull code from database and send code embed with user ping (Admin)')
+        .addUserOption(opt => opt.setName('buyer').setDescription('Select the user to ping').setRequired(true))
         .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID key to pull code from').setRequired(true)),
     new SlashCommandBuilder()
         .setName('close')
@@ -347,8 +348,9 @@ botClient.on('interactionCreate', async interaction => {
             await interaction.reply({ content: `🗑️ Removed ${removedCount} codes from \`${itemId}\`. Remaining stock: ${itemRecord.codes.length}`, flags: 64 });
         }
 
-        // --- NEW /DELIVER COMMAND HANDLER ---
+        // --- UPDATED /DELIVER COMMAND HANDLER ---
         if (commandLabel === 'deliver') {
+            const targetUser = interaction.options.getUser('buyer');
             const itemId = interaction.options.getString('item_id');
 
             if (!interaction.channel.name.startsWith('trade-')) {
@@ -362,8 +364,6 @@ botClient.on('interactionCreate', async interaction => {
                     return interaction.reply({ content: `❌ Stock error: Item \`${itemId}\` is completely out of stock!`, flags: 64 });
                 }
 
-                // Extract buyer from channel name or let admin choose, but we can look for members or parse channel name
-                // Let's pull the next code from inventory
                 const deliveredCode = itemRecord.codes.shift();
                 await itemRecord.save();
 
@@ -374,8 +374,14 @@ botClient.on('interactionCreate', async interaction => {
                     .setFooter({ text: 'Thank you for your business!' })
                     .setTimestamp();
 
-                await interaction.reply({ content: `✅ Successfully pulled code from inventory and sent below:`, flags: 64 });
-                await interaction.channel.send({ embeds: [deliveryEmbed] });
+                // Acknowledge command privately to admin
+                await interaction.reply({ content: `✅ Successfully pulled code for ${targetUser.tag} and sent it to the channel.`, flags: 64 });
+                
+                // Send ping outside the embed in the channel
+                await interaction.channel.send({
+                    content: `Hey <@${targetUser.id}>! Here is your delivery:`,
+                    embeds: [deliveryEmbed]
+                });
 
             } catch (err) {
                 console.error('Error in /deliver command:', err);
@@ -645,6 +651,5 @@ botClient.on('interactionCreate', async interaction => {
 
 // Initialize Services
 const port = process.env.PORT || 3000;
-webApp.port = port;
 webApp.listen(port, () => console.log(`HTTP Webhook Listener running on port ${port}`));
 botClient.login(process.env.DISCORD_TOKEN);

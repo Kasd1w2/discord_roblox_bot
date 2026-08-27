@@ -265,19 +265,21 @@ botClient.on('interactionCreate', async interaction => {
 
         try {
             // Check inventory stock in MongoDB
-            // Check inventory stock in MongoDB
             const itemRecord = await Inventory.findOne({ itemId: productKey });
             
             if (!itemRecord || itemRecord.codes.length === 0) {
-    // Send a quick public message in the forum, then delete it after 4 seconds
-    const outOfStockMsg = await interaction.channel.send(`❌ <@${interaction.user.id}>, sorry! **${productKey}** is currently **out of stock**.`);
-    setTimeout(() => {
-        outOfStockMsg.delete().catch(() => {});
-    }, 4000);
+                // Edit the existing ephemeral "thinking" state
+                await interaction.editReply({ 
+                    content: `❌ Sorry, **${productKey}** is currently **out of stock**.` 
+                });
 
-    // ✅ FIX: Use editReply instead of reply
-    return interaction.editReply({ content: '❌ This item is out of stock.' }); 
-}
+                // Auto-delete the ephemeral message after 4 seconds
+                setTimeout(async () => {
+                    await interaction.deleteReply().catch(() => {});
+                }, 4000);
+
+                return; // Stop the rest of the code from running
+            }
 
             // Create Stripe Checkout Session
             const checkoutSession = await stripe.checkout.sessions.create({
@@ -345,14 +347,15 @@ botClient.on('interactionCreate', async interaction => {
             await deliveryMessage.react('✅');
             await deliveryMessage.react('❌');
 
-            // Send a clean public notice in the forum post tagging the user, then auto-delete it after 6 seconds
-            const publicNotice = await interaction.channel.send(`🛒 <@${interaction.user.id}>, your private order channel has been created: <#${orderChannel.id}>`);
-            setTimeout(() => {
-                publicNotice.delete().catch(() => {});
-            }, 6000);
+            // Edit the existing ephemeral "thinking" state to show success
+            await interaction.editReply({ 
+                content: `🛒 Your private order channel has been created: <#${orderChannel.id}>` 
+            });
 
-            // Clear out the ephemeral thinking state silently
-            await interaction.deleteReply().catch(() => {});
+            // Auto-delete the ephemeral message after 6 seconds
+            setTimeout(async () => {
+                await interaction.deleteReply().catch(() => {});
+            }, 6000);
 
         } catch (stripeError) {
             console.error('Checkout creation error:', stripeError);

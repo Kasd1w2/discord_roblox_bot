@@ -133,6 +133,11 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
                 
                 await deliveryMessage.react('✅');
                 await deliveryMessage.react('❌');
+
+                // Send vouch request message
+                await orderChannel.send(
+                    `🙏 Thank you again for your business, <@${buyerDiscordId}>! If you have a moment, please drop a vouch in <#1542340439166820434>. We'd really appreciate it!`
+                );
             }
 
         } catch (dbErr) {
@@ -377,11 +382,16 @@ botClient.on('interactionCreate', async interaction => {
                 // Acknowledge command privately to admin
                 await interaction.reply({ content: `✅ Successfully pulled code for ${targetUser.tag} and sent it to the channel.`, flags: 64 });
                 
-                // Send ping outside the embed in the channel
+                // Send code embed with user ping
                 await interaction.channel.send({
                     content: `Hey <@${targetUser.id}>! Here is your delivery:`,
                     embeds: [deliveryEmbed]
                 });
+
+                // Send second message asking for a vouch
+                await interaction.channel.send(
+                    `🙏 Thank you again for your business, <@${targetUser.id}>! If you have a moment, please drop a vouch in <#1542340439166820434>. We'd really appreciate it!`
+                );
 
             } catch (err) {
                 console.error('Error in /deliver command:', err);

@@ -204,7 +204,7 @@ const appCommands = [
         .setDescription('Pull code from database and send code embed with user ping (Admin)')
         .addUserOption(opt => opt.setName('buyer').setDescription('Select the user to ping').setRequired(true))
         .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID key to pull code from').setRequired(true))
-        .addNumberOption(opt => opt.setName('price').setDescription('Order price in USD to award points (Optional)').setRequired(false)),
+        .addNumberOption(opt => opt.setName('price').setDescription('Order price in USD to award points (Optional)').setRequired(true)),
     new SlashCommandBuilder()
         .setName('close')
         .setDescription('Close order channel and log successful/failed sale (Admin)')

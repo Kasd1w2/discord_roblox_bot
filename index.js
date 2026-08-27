@@ -49,11 +49,10 @@ const botClient = new Client({
 });
 
 // --- HELPER FUNCTION: FETCH LIVE CRYPTO RATES ---
-// --- HELPER FUNCTION: FETCH LIVE CRYPTO RATES ---
 async function getCryptoAmounts(usdPrice) {
     try {
         const response = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=ethereum,litecoin,bitcoin,solana&vs_currencies=usd', {
-            headers: { 'User-Agent': 'Mozilla/5.0' } // Prevents CoinGecko from blocking server requests
+            headers: { 'User-Agent': 'Mozilla/5.0' }
         });
         const prices = response.data;
 
@@ -67,7 +66,6 @@ async function getCryptoAmounts(usdPrice) {
         console.error('CoinGecko API failed, attempting backup API (CryptoCompare)...', error.message);
         
         try {
-            // Backup API: CryptoCompare (Very reliable for free server requests)
             const backupRes = await axios.get('https://min-api.cryptocompare.com/data/pricemulti?fsyms=ETH,LTC,BTC,SOL&tsyms=USD');
             const data = backupRes.data;
 
@@ -83,6 +81,7 @@ async function getCryptoAmounts(usdPrice) {
         }
     }
 }
+
 // --- STRIPE WEBHOOK ENDPOINT (AUTOMATED CODE DELIVERY) ---
 webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
     const signatureHeader = req.headers['stripe-signature'];
@@ -174,7 +173,26 @@ const appCommands = [
         .setName('remove-stock')
         .setDescription('Remove specific codes from an item (Admin)')
         .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID key').setRequired(true))
-        .addStringOption(opt => opt.setName('codes').setDescription('Comma-separated codes to remove').setRequired(true))
+        .addStringOption(opt => opt.setName('codes').setDescription('Comma-separated codes to remove').setRequired(true)),
+    new SlashCommandBuilder()
+        .setName('close')
+        .setDescription('Close order channel and log successful/failed sale (Admin)')
+        .addStringOption(opt => 
+            opt.setName('status')
+               .setDescription('Was the payment successful?')
+               .setRequired(true)
+               .addChoices(
+                   { name: 'Successful', value: 'success' },
+                   { name: 'Failed / Cancelled', value: 'failed' }
+               ))
+        .addStringOption(opt => 
+            opt.setName('method')
+               .setDescription('Payment method used (required if successful)')
+               .setRequired(false)
+               .addChoices(
+                   { name: 'Stripe (Card)', value: 'Stripe (Card)' },
+                   { name: 'Cryptocurrency', value: 'Cryptocurrency' }
+               ))
 ];
 
 botClient.once('clientReady', async () => {
@@ -216,7 +234,7 @@ botClient.on('interactionCreate', async interaction => {
         const commandLabel = interaction.commandName;
         const ADMIN_ROLE_ID = '1542306776622309437';
 
-        if (['setup-store', 'restock', 'stock', 'remove-stock'].includes(commandLabel)) {
+        if (['setup-store', 'restock', 'stock', 'remove-stock', 'close'].includes(commandLabel)) {
             if (!interaction.member.roles.cache.has(ADMIN_ROLE_ID)) {
                 return interaction.reply({ 
                     content: '🛑 You do not have permission to use this command.', 
@@ -324,6 +342,46 @@ botClient.on('interactionCreate', async interaction => {
 
             await interaction.reply({ content: `🗑️ Removed ${removedCount} codes from \`${itemId}\`. Remaining stock: ${itemRecord.codes.length}`, flags: 64 });
         }
+
+        // --- NEW /CLOSE COMMAND HANDLER ---
+        if (commandLabel === 'close') {
+            const status = interaction.options.getString('status');
+            const method = interaction.options.getString('method') || 'Unknown Method';
+            const channel = interaction.channel;
+
+            if (!channel.name.startsWith('trade-')) {
+                return interaction.reply({ content: '🛑 This command can only be used inside a trade/order channel.', flags: 64 });
+            }
+
+            await interaction.reply({ content: '🔒 Processing order closure and cleaning up channel...', flags: 64 });
+
+            if (status === 'success') {
+                const PUBLIC_LOG_CHANNEL_ID = '1542337221791711324';
+                const logChannel = await interaction.guild.channels.fetch(PUBLIC_LOG_CHANNEL_ID).catch(() => null);
+
+                if (logChannel) {
+                    // Extract item name from channel name format: trade-[item_id]-[username]
+                    const channelNameParts = channel.name.split('-');
+                    let parsedItem = channelNameParts.length > 1 ? channelNameParts[1].toUpperCase() : 'STORE ITEM';
+
+                    const receiptEmbed = new EmbedBuilder()
+                        .setTitle('🧾 New Successful Sale')
+                        .setDescription(`An item has been successfully purchased and delivered securely.`)
+                        .setColor(0x00FF00)
+                        .addFields(
+                            { name: '📦 Item Sold', value: `\`${parsedItem}\``, inline: true },
+                            { name: '💳 Payment Method', value: `\`${method}\``, inline: true }
+                        )
+                        .setTimestamp();
+
+                    await logChannel.send({ embeds: [receiptEmbed] });
+                }
+            }
+
+            setTimeout(async () => {
+                await channel.delete().catch(() => {});
+            }, 4000);
+        }
     }
 
     // --- BUTTON INTERACTION HANDLERS ---
@@ -368,7 +426,6 @@ botClient.on('interactionCreate', async interaction => {
                     ],
                 });
 
-                // Polished Embed with Dropdown Menu
                 const polishedEmbed = new EmbedBuilder()
                     .setTitle('🛍️ Secure Checkout Portal')
                     .setDescription(`Welcome <@${interaction.user.id}>! You are initializing an order for **${productKey.toUpperCase()}**.\n\n` +
@@ -478,7 +535,6 @@ botClient.on('interactionCreate', async interaction => {
             if (selectedValue === 'select_crypto') {
                 await interaction.deferUpdate();
 
-                // Fetch live prices via API
                 const amounts = await getCryptoAmounts(parseFloat(productPrice));
 
                 const cryptoEmbed = new EmbedBuilder()
@@ -528,7 +584,7 @@ botClient.on('interactionCreate', async interaction => {
         await interaction.showModal(txModal);
     }
 
-    // --- HANDLE MODAL SUBMISSION (FORUM/TICKET NOTIFICATION) ---
+    // --- HANDLE MODAL SUBMISSION ---
     if (interaction.isModalSubmit() && interaction.customId.startsWith('submit_tx_form|')) {
         const [, productKey] = interaction.customId.split('|');
         const userTxProof = interaction.fields.getTextInputValue('tx_hash_input');
@@ -542,7 +598,6 @@ botClient.on('interactionCreate', async interaction => {
 
         await interaction.reply({ embeds: [confirmationEmbed] });
 
-        // Ping staff in the trade channel
         await interaction.channel.send(
             `🔔 <@&${ADMIN_ROLE_ID}>, <@${interaction.user.id}> has submitted a crypto transaction proof for **${productKey}**! Please verify and deliver the code manually.`
         );

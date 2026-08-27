@@ -19,6 +19,7 @@ const {
     TextInputBuilder,
     TextInputStyle,
     ChannelType,
+    ActivityType,
     PermissionFlagsBits
 } = require('discord.js');
 

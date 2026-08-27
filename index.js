@@ -120,7 +120,7 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         const buyerDiscordId = session.metadata.discord_user_id;
         const targetItemId = session.metadata.item_id;
         const channelId = session.metadata.channel_id;
-        const usdPricePaid = session.amount_total / 100; // Convert cents to dollars
+        const usdPricePaid = session.amount_total / 100;
 
         try {
             const itemRecord = await Inventory.findOne({ itemId: targetItemId });
@@ -167,7 +167,6 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 
 // --- DISCORD COMMAND DEFINITIONS ---
 const appCommands = [
-    // Existing commands...
     new SlashCommandBuilder()
         .setName('setup-store')
         .setDescription('Create a new product post inside a Forum Channel (Admin)')
@@ -199,21 +198,20 @@ const appCommands = [
         .addUserOption(opt => opt.setName('buyer').setDescription('Select the user to ping').setRequired(true))
         .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID key to pull code from').setRequired(true)),
     new SlashCommandBuilder()
-        .setName('give-coupon')
-        .setDescription('Give a discount coupon to a user manually (Admin)')
-        .addUserOption(opt => opt.setName('user').setDescription('The user to receive the coupon').setRequired(true))
-        .addNumberOption(opt => opt.setName('discount').setDescription('Discount percentage (e.g., 10, 15, 50)').setRequired(true)),
-    new SlashCommandBuilder()
         .setName('close')
         .setDescription('Close order channel and log successful/failed sale (Admin)')
         .addStringOption(opt => opt.setName('status').setDescription('Was the payment successful?').setRequired(true).addChoices({ name: 'Successful', value: 'success' }, { name: 'Failed / Cancelled', value: 'failed' }))
         .addStringOption(opt => opt.setName('method').setDescription('Payment method used').setRequired(false).addChoices({ name: 'Stripe (Card)', value: 'Stripe (Card)' }, { name: 'Cryptocurrency', value: 'Cryptocurrency' }))
         .addUserOption(opt => opt.setName('buyer').setDescription('Buyer (needed to award points if successful)').setRequired(false))
         .addNumberOption(opt => opt.setName('price').setDescription('Final order price (needed to award points)').setRequired(false)),
-    // New command: Coupon Store
     new SlashCommandBuilder()
         .setName('coupon-store')
-        .setDescription('Drop the interactive Coupon Store embed in this channel (Admin)')
+        .setDescription('Drop the interactive Coupon Store embed in this channel (Admin)'),
+    new SlashCommandBuilder()
+        .setName('give-coupon')
+        .setDescription('Give a discount coupon to a user manually (Admin)')
+        .addUserOption(opt => opt.setName('user').setDescription('The user to receive the coupon').setRequired(true))
+        .addNumberOption(opt => opt.setName('discount').setDescription('Discount percentage (e.g., 10, 15, 50)').setRequired(true))
 ];
 
 botClient.once('clientReady', async () => {
@@ -254,6 +252,31 @@ botClient.on('interactionCreate', async interaction => {
             }
         }
 
+        if (commandLabel === 'give-coupon') {
+            await interaction.deferReply({ flags: 64 });
+            const targetUser = interaction.options.getUser('user');
+            const discountPct = interaction.options.getNumber('discount');
+
+            try {
+                let userLedger = await Ledger.findOne({ discordId: targetUser.id });
+                if (!userLedger) {
+                    userLedger = new Ledger({ discordId: targetUser.id, purchases: [], points: 0, coupons: [] });
+                }
+                
+                userLedger.coupons.push(discountPct);
+                await userLedger.save();
+
+                await interaction.editReply({ 
+                    content: `✅ Successfully gave a **${discountPct}% Off Coupon** to <@${targetUser.id}> for testing.` 
+                });
+            } catch (err) {
+                console.error('Database error giving coupon:', err);
+                await interaction.editReply({ 
+                    content: '❌ Failed to update database. Please check the bot console for details.' 
+                });
+            }
+        }
+
         if (commandLabel === 'coupon-store') {
             const storeEmbed = new EmbedBuilder()
                 .setTitle('🎟️ Points & Coupon Store')
@@ -263,8 +286,7 @@ botClient.on('interactionCreate', async interaction => {
                                 `• $101 - $500 = 4 Points\n` +
                                 `• $501 - $1000 = 7 Points\n` +
                                 `• $1000+ = 10 Points`)
-                .setColor(0xFFD700)
-                .setImage('https://i.imgur.com/EXAMPLE_BANNER.png'); // Feel free to add a nice banner URL here
+                .setColor(0xFFD700);
 
             const couponMenu = new StringSelectMenuBuilder()
                 .setCustomId('buy_coupon')
@@ -277,6 +299,46 @@ botClient.on('interactionCreate', async interaction => {
             const menuRow = new ActionRowBuilder().addComponents(couponMenu);
             await interaction.channel.send({ embeds: [storeEmbed], components: [menuRow] });
             await interaction.reply({ content: '✅ Coupon store deployed.', flags: 64 });
+        }
+
+        if (commandLabel === 'setup-store') {
+            const selectedChannelOption = interaction.options.getChannel('forum_channel');
+            const targetForum = await interaction.guild.channels.fetch(selectedChannelOption.id);
+            
+            const productTitle = interaction.options.getString('title');
+            const productPrice = interaction.options.getNumber('price');
+            const productKey = interaction.options.getString('item_id');
+            const robloxLink = interaction.options.getString('catalog_url');
+            const thumbnailPic = interaction.options.getString('image_url');
+
+            const listingEmbed = new EmbedBuilder()
+                .setTitle(`${productTitle}`)
+                .setDescription(`Click on the button below to purchase!`)
+                .setColor(0x2B2D31)
+                .addFields(
+                    { name: 'Price', value: `$${productPrice} USD`, inline: true },
+                    { name: 'Delivery', value: 'Automated Code Delivery', inline: true },
+                    { name: '\u200B', value: '\u200B', inline: true },
+                    { name: 'Rolimons Link', value: `[View item](${robloxLink})`, inline: false }
+                )
+                .setImage(thumbnailPic);
+
+            const buyActionBtn = new ButtonBuilder()
+                .setCustomId(`purchase_action|${productKey}|${productPrice}`)
+                .setLabel(`Purchase ${productTitle}`)
+                .setStyle(ButtonStyle.Primary);
+
+            const buttonRow = new ActionRowBuilder().addComponents(buyActionBtn);
+
+            await targetForum.threads.create({
+                name: productTitle,
+                message: {
+                    embeds: [listingEmbed],
+                    components: [buttonRow]
+                }
+            });
+
+            await interaction.reply({ content: `✅ Successfully created forum post for **${productTitle}**!`, flags: 64 });
         }
 
         if (commandLabel === 'my-codes') {
@@ -294,7 +356,84 @@ botClient.on('interactionCreate', async interaction => {
             });
         }
 
-        // [Other standard admin commands remain identical to your current structure here: setup-store, restock, stock, remove-stock, deliver]
+        if (commandLabel === 'restock') {
+            const itemId = interaction.options.getString('item_id');
+            const newCodes = interaction.options.getString('codes').split(',').map(c => c.trim());
+
+            let itemRecord = await Inventory.findOne({ itemId });
+            if (!itemRecord) {
+                itemRecord = new Inventory({ itemId, codes: [] });
+            }
+
+            itemRecord.codes.push(...newCodes);
+            await itemRecord.save();
+
+            await interaction.reply({ content: `✅ Added ${newCodes.length} codes to \`${itemId}\`. Total stock: ${itemRecord.codes.length}`, flags: 64 });
+        }
+
+        if (commandLabel === 'stock') {
+            const allInventory = await Inventory.find({});
+            if (!allInventory || allInventory.length === 0) {
+                return interaction.reply({ content: 'No inventory records found in the database.', flags: 64 });
+            }
+
+            const stockList = allInventory.map(item => `• **${item.itemId}**: ${item.codes.length} code(s) remaining`).join('\n');
+            await interaction.reply({ content: `📦 **Current Inventory Stock:**\n${stockList}`, flags: 64 });
+        }
+
+        if (commandLabel === 'remove-stock') {
+            const itemId = interaction.options.getString('item_id');
+            const codesToRemove = interaction.options.getString('codes').split(',').map(c => c.trim());
+
+            let itemRecord = await Inventory.findOne({ itemId });
+            if (!itemRecord) {
+                return interaction.reply({ content: `❌ Item \`${itemId}\` not found in database.`, flags: 64 });
+            }
+
+            const originalLength = itemRecord.codes.length;
+            itemRecord.codes = itemRecord.codes.filter(code => !codesToRemove.includes(code));
+            await itemRecord.save();
+
+            const removedCount = originalLength - itemRecord.codes.length;
+            await interaction.reply({ content: `🗑️ Removed ${removedCount} codes from \`${itemId}\`. Remaining stock: ${itemRecord.codes.length}`, flags: 64 });
+        }
+
+        if (commandLabel === 'deliver') {
+            const targetUser = interaction.options.getUser('buyer');
+            const itemId = interaction.options.getString('item_id');
+
+            if (!interaction.channel.name.startsWith('trade-')) {
+                return interaction.reply({ content: '🛑 This command can only be used inside a trade/order channel.', flags: 64 });
+            }
+
+            try {
+                const itemRecord = await Inventory.findOne({ itemId });
+                if (!itemRecord || itemRecord.codes.length === 0) {
+                    return interaction.reply({ content: `❌ Stock error: Item \`${itemId}\` is completely out of stock!`, flags: 64 });
+                }
+
+                const deliveredCode = itemRecord.codes.shift();
+                await itemRecord.save();
+
+                const deliveryEmbed = new EmbedBuilder()
+                    .setTitle('🎁 Order Delivery')
+                    .setDescription(`Here is your requested code for **${itemId.toUpperCase()}**:\n\`\`\`${deliveredCode}\`\`\``)
+                    .setColor(0x00FF00)
+                    .setFooter({ text: 'Thank you for your business!' })
+                    .setTimestamp();
+
+                await interaction.reply({ content: `✅ Successfully pulled code for ${targetUser.tag} and sent it to the channel.`, flags: 64 });
+                
+                await interaction.channel.send({
+                    content: `Hey <@${targetUser.id}>! Here is your delivery:`,
+                    embeds: [deliveryEmbed]
+                });
+                await interaction.channel.send(`🙏 Thank you again for your business, <@${targetUser.id}>! If you have a moment, please drop a vouch in <#1542340439166820434>. We'd really appreciate it!`);
+            } catch (err) {
+                console.error('Error in /deliver command:', err);
+                await interaction.reply({ content: 'An error occurred while attempting to deliver the code.', flags: 64 });
+            }
+        }
 
         if (commandLabel === 'close') {
             const status = interaction.options.getString('status');
@@ -308,7 +447,6 @@ botClient.on('interactionCreate', async interaction => {
             await interaction.reply({ content: '🔒 Processing order closure and cleaning up channel...', flags: 64 });
 
             if (status === 'success') {
-                // Award points manually if buyer and price provided
                 if (buyer && price) {
                     let userLedger = await Ledger.findOne({ discordId: buyer.id });
                     if (!userLedger) userLedger = new Ledger({ discordId: buyer.id, purchases: [], points: 0, coupons: [] });
@@ -401,10 +539,8 @@ botClient.on('interactionCreate', async interaction => {
                 await interaction.editReply({ content: `🛒 Your private order channel has been created: <#${orderChannel.id}>` });
                 setTimeout(async () => { await interaction.deleteReply().catch(() => {}); }, 6000);
 
-                // Fetch ledger to see if user has coupons
                 let userLedger = await Ledger.findOne({ discordId: interaction.user.id });
                 
-                // If price < 100 AND user has at least 1 coupon, offer it
                 if (priceNum < 100 && userLedger && userLedger.coupons && userLedger.coupons.length > 0) {
                     const couponEmbed = new EmbedBuilder()
                         .setTitle('🎟️ Apply Coupon?')
@@ -420,7 +556,6 @@ botClient.on('interactionCreate', async interaction => {
                         components: [new ActionRowBuilder().addComponents(btnYes, btnNo)]
                     });
                 } else {
-                    // Standard checkout flow (no coupons or price >= 100)
                     const polishedEmbed = new EmbedBuilder()
                         .setTitle('🛍️ Secure Checkout Portal')
                         .setDescription(`Welcome <@${interaction.user.id}>! You are initializing an order for **${productKey.toUpperCase()}**.\n\n` +
@@ -443,7 +578,6 @@ botClient.on('interactionCreate', async interaction => {
             const [, productKey, productPrice] = interaction.customId.split('|');
             let userLedger = await Ledger.findOne({ discordId: interaction.user.id });
             
-            // Generate unique options for the select menu based on what they own
             const uniqueCoupons = [...new Set(userLedger.coupons)];
             const options = uniqueCoupons.map(pct => ({
                 label: `Apply ${pct}% Off Coupon`,
@@ -462,7 +596,7 @@ botClient.on('interactionCreate', async interaction => {
             });
         }
 
-        // 4. User clicked No to coupon, load standard payment menu
+        // 4. User clicked No to coupon
         if (interaction.customId.startsWith('use_coupon_no|')) {
             const [, productKey, productPrice] = interaction.customId.split('|');
             
@@ -478,7 +612,7 @@ botClient.on('interactionCreate', async interaction => {
         }
     }
 
-    // 5. User selected a coupon from the dropdown to apply
+    // 5. User selected a coupon from the dropdown
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith('apply_coupon|')) {
         await interaction.deferUpdate();
         const [, productKey, originalPrice] = interaction.customId.split('|');
@@ -488,7 +622,6 @@ botClient.on('interactionCreate', async interaction => {
         const couponIndex = userLedger.coupons.indexOf(discountPct);
         
         if (couponIndex > -1) {
-            // Remove the coupon from the user's inventory
             userLedger.coupons.splice(couponIndex, 1);
             await userLedger.save();
             

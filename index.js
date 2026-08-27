@@ -269,15 +269,15 @@ botClient.on('interactionCreate', async interaction => {
             const itemRecord = await Inventory.findOne({ itemId: productKey });
             
             if (!itemRecord || itemRecord.codes.length === 0) {
-                // Send a quick public message in the forum, then delete it after 4 seconds
-                const outOfStockMsg = await interaction.channel.send(`❌ <@${interaction.user.id}>, sorry! **${productKey}** is currently **out of stock**.`);
-                setTimeout(() => {
-                    outOfStockMsg.delete().catch(() => {});
-                }, 4000);
+    // Send a quick public message in the forum, then delete it after 4 seconds
+    const outOfStockMsg = await interaction.channel.send(`❌ <@${interaction.user.id}>, sorry! **${productKey}** is currently **out of stock**.`);
+    setTimeout(() => {
+        outOfStockMsg.delete().catch(() => {});
+    }, 4000);
 
-                // Acknowledge the button click so it doesn't say "Interaction failed", but keep it silent
-                return interaction.reply({ content: '❌ This item is out of stock.', flags: 64 });
-            }
+    // ✅ FIX: Use editReply instead of reply
+    return interaction.editReply({ content: '❌ This item is out of stock.' }); 
+}
 
             // Create Stripe Checkout Session
             const checkoutSession = await stripe.checkout.sessions.create({

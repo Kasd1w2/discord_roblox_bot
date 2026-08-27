@@ -377,15 +377,17 @@ botClient.on('interactionCreate', async interaction => {
         }
 
         if (commandLabel === 'setup-store') {
-            updateBotStatus(`🏷️ Creating store listing: ${productTitle}`)
-            const selectedChannelOption = interaction.options.getChannel('forum_channel');
-            const targetForum = await interaction.guild.channels.fetch(selectedChannelOption.id);
-            
-            const productTitle = interaction.options.getString('title');
-            const productPrice = interaction.options.getNumber('price');
-            const productKey = interaction.options.getString('item_id');
-            const robloxLink = interaction.options.getString('catalog_url');
-            const thumbnailPic = interaction.options.getString('image_url');
+    const selectedChannelOption = interaction.options.getChannel('forum_channel');
+    const productTitle = interaction.options.getString('title');
+    const productPrice = interaction.options.getNumber('price');
+    const productKey = interaction.options.getString('item_id');
+    const robloxLink = interaction.options.getString('catalog_url');
+    const thumbnailPic = interaction.options.getString('image_url');
+
+    updateBotStatus(`🏷️ Creating store listing: ${productTitle}`);
+    
+    const targetForum = await interaction.guild.channels.fetch(selectedChannelOption.id);
+    // ... a többi kódrészlet marad változatlan
             
             // 1. Grab the selected delivery method
             const deliveryMethod = interaction.options.getString('delivery_method'); 
@@ -518,14 +520,16 @@ const buyActionBtn = new ButtonBuilder()
 }
 
         if (commandLabel === 'deliver') {
-            updateBotStatus(`📦 Delivering item: ${itemId.toUpperCase()}`);
-            const targetUser = interaction.options.getUser('buyer');
-            const itemId = interaction.options.getString('item_id');
-            const itemPrice = interaction.options.getNumber('price') || 0;
+    const targetUser = interaction.options.getUser('buyer');
+    const itemId = interaction.options.getString('item_id');
+    const itemPrice = interaction.options.getNumber('price') || 0;
 
-            if (!interaction.channel.name.startsWith('trade-')) {
-                return interaction.reply({ content: '🛑 This command can only be used inside a trade/order channel.', flags: 64 });
-            }
+    updateBotStatus(`📦 Delivering item: ${itemId.toUpperCase()}`);
+
+    if (!interaction.channel.name.startsWith('trade-')) {
+        return interaction.reply({ content: '🛑 This command can only be used inside a trade/order channel.', flags: 64 });
+    }
+    // ... a többi kódrészlet marad változatlan
 
             try {
                 const itemRecord = await Inventory.findOne({ itemId });

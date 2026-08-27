@@ -49,9 +49,12 @@ const botClient = new Client({
 });
 
 // --- HELPER FUNCTION: FETCH LIVE CRYPTO RATES ---
+// --- HELPER FUNCTION: FETCH LIVE CRYPTO RATES ---
 async function getCryptoAmounts(usdPrice) {
     try {
-        const response = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=ethereum,litecoin,bitcoin,solana&vs_currencies=usd');
+        const response = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=ethereum,litecoin,bitcoin,solana&vs_currencies=usd', {
+            headers: { 'User-Agent': 'Mozilla/5.0' } // Prevents CoinGecko from blocking server requests
+        });
         const prices = response.data;
 
         return {
@@ -61,11 +64,25 @@ async function getCryptoAmounts(usdPrice) {
             sol: (usdPrice / prices.solana.usd).toFixed(4)
         };
     } catch (error) {
-        console.error('Failed to fetch crypto prices from CoinGecko, falling back to approximate labels:', error.message);
-        return { eth: '?', ltc: '?', btc: '?', sol: '?' };
+        console.error('CoinGecko API failed, attempting backup API (CryptoCompare)...', error.message);
+        
+        try {
+            // Backup API: CryptoCompare (Very reliable for free server requests)
+            const backupRes = await axios.get('https://min-api.cryptocompare.com/data/pricemulti?fsyms=ETH,LTC,BTC,SOL&tsyms=USD');
+            const data = backupRes.data;
+
+            return {
+                eth: (usdPrice / data.ETH.USD).toFixed(6),
+                ltc: (usdPrice / data.LTC.USD).toFixed(4),
+                btc: (usdPrice / data.BTC.USD).toFixed(8),
+                sol: (usdPrice / data.SOL.USD).toFixed(4)
+            };
+        } catch (backupError) {
+            console.error('Backup crypto API also failed:', backupError.message);
+            return { eth: 'Check live rate', ltc: 'Check live rate', btc: 'Check live rate', sol: 'Check live rate' };
+        }
     }
 }
-
 // --- STRIPE WEBHOOK ENDPOINT (AUTOMATED CODE DELIVERY) ---
 webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
     const signatureHeader = req.headers['stripe-signature'];

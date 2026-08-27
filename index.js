@@ -23,6 +23,19 @@ const {
     PermissionFlagsBits
 } = require('discord.js');
 
+// Place right after const botClient = new Client({ ... });
+
+function updateBotStatus(text, temporaryMs = 15000) {
+    if (!botClient || !botClient.user) return;
+    botClient.user.setActivity(text, { type: ActivityType.Custom });
+
+    if (temporaryMs > 0) {
+        setTimeout(() => {
+            botClient.user.setActivity('🛒 Stocked Store Operations', { type: ActivityType.Watching });
+        }, temporaryMs);
+    }
+}
+
 // --- DATABASE CONNECTIVITY ---
 mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log('Successfully connected to MongoDB Atlas.'))

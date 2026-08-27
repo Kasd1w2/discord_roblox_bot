@@ -268,10 +268,6 @@ botClient.on('interactionCreate', async interaction => {
             const itemRecord = await Inventory.findOne({ itemId: productKey });
             
             if (itemRecord && itemRecord.codes.length === 0) {
-<<<<<<< Updated upstream
-                // Send temporary notice tagging the user, then delete it after 5 seconds
-=======
->>>>>>> Stashed changes
                 const outOfStockMsg = await interaction.channel.send(`❌ <@${interaction.user.id}>, sorry! **${productKey}** is currently **out of stock**.`);
                 setTimeout(() => {
                     outOfStockMsg.delete().catch(() => {});
@@ -280,10 +276,7 @@ botClient.on('interactionCreate', async interaction => {
                 return interaction.editReply({ content: '❌ This item is out of stock.' });
             }
 
-<<<<<<< Updated upstream
-=======
             // Create Stripe Checkout Session
->>>>>>> Stashed changes
             const checkoutSession = await stripe.checkout.sessions.create({
                 payment_method_types: ['card'],
                 line_items: [{

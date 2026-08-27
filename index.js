@@ -289,81 +289,107 @@ botClient.on('interactionCreate', async interaction => {
         }
     }
 
-    if (interaction.isButton() && interaction.customId.startsWith('purchase_action|')) {
-        await interaction.deferReply({ flags: 64 });
-        const [, productKey, productPrice] = interaction.customId.split('|');
-
-        try {
-            // Check inventory stock in MongoDB
-            const itemRecord = await Inventory.findOne({ itemId: productKey });
+    if (interaction.isButton()) {
+        if (interaction.customId === 'close_order') {
+            await interaction.reply({ content: '🗑️ Canceling order... closing channel in 5 seconds.' });
             
-            if (!itemRecord || itemRecord.codes.length === 0) {
+            setTimeout(async () => {
+                await interaction.channel.delete().catch(() => {});
+            }, 5000);
+            return;
+        }
+
+        if (interaction.customId.startsWith('purchase_action|')) {
+            await interaction.deferReply({ flags: 64 });
+            const [, productKey, productPrice] = interaction.customId.split('|');
+
+            try {
+                // Check inventory stock in MongoDB
+                const itemRecord = await Inventory.findOne({ itemId: productKey });
+                
+                if (!itemRecord || itemRecord.codes.length === 0) {
+                    await interaction.editReply({ 
+                        content: `❌ Sorry, **${productKey}** is currently **out of stock**.` 
+                    });
+
+                    setTimeout(async () => {
+                        await interaction.deleteReply().catch(() => {});
+                    }, 4000);
+
+                    return;
+                }
+
+                // 1. Create the private order channel FIRST
+                const guild = interaction.guild;
+                const sanitizedUsername = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
+                const orderChannel = await guild.channels.create({
+                    name: `trade-${productKey}-${sanitizedUsername}`.substring(0, 100),
+                    type: ChannelType.GuildText,
+                    permissionOverwrites: [
+                        { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+                        { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AddReactions] },
+                        { id: botClient.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AddReactions] }
+                    ],
+                });
+
+                // 2. Create Stripe Checkout Session (with channel_id attached)
+                const stripeSession = await stripe.checkout.sessions.create({
+                    payment_method_types: ['card'],
+                    line_items: [{
+                        price_data: {
+                            currency: 'usd',
+                            product_data: { name: productKey.toUpperCase().replace('_', ' ') },
+                            unit_amount: Math.round(parseFloat(productPrice) * 100),
+                        },
+                        quantity: 1,
+                    }],
+                    mode: 'payment',
+                    success_url: 'https://roblox.com',
+                    cancel_url: 'https://roblox.com',
+                    metadata: {
+                        discord_user_id: interaction.user.id,
+                        item_id: productKey,
+                        guild_id: interaction.guild.id,
+                        channel_id: orderChannel.id
+                    }
+                });
+
+                // 3. Send payment link in an embed with buttons
+                const checkoutEmbed = new EmbedBuilder()
+                    .setTitle('Pending Checkout')
+                    .setDescription(`Hey <@${interaction.user.id}>, 🛍️ **Complete your payment!**\n\nItem: \`${productKey}\`\n\n*Your code will be delivered here automatically once payment is confirmed.*`)
+                    .setColor(0x2B2D31);
+
+                const payButton = new ButtonBuilder()
+                    .setLabel('Open Checkout')
+                    .setURL(stripeSession.url) 
+                    .setStyle(ButtonStyle.Link);
+
+                const closeButton = new ButtonBuilder()
+                    .setCustomId('close_order')
+                    .setLabel('Cancel & Close')
+                    .setStyle(ButtonStyle.Danger);
+
+                const checkoutRow = new ActionRowBuilder().addComponents(payButton, closeButton);
+
+                await orderChannel.send({
+                    embeds: [checkoutEmbed],
+                    components: [checkoutRow]
+                });
+
+                // Edit ephemeral notice and auto-delete
                 await interaction.editReply({ 
-                    content: `❌ Sorry, **${productKey}** is currently **out of stock**.` 
+                    content: `🛒 Your private order channel has been created: <#${orderChannel.id}>` 
                 });
 
                 setTimeout(async () => {
                     await interaction.deleteReply().catch(() => {});
-                }, 4000);
+                }, 6000);
 
-                return;
+            } catch (stripeError) {
+                console.error('Checkout creation error:', stripeError);
+                await interaction.editReply({ content: 'Encountered an error generating your checkout. Please try again later.' });
             }
-
-            // 1. Create the private order channel FIRST
-            const guild = interaction.guild;
-            const sanitizedUsername = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
-            const orderChannel = await guild.channels.create({
-                name: `trade-${productKey}-${sanitizedUsername}`.substring(0, 100),
-                type: ChannelType.GuildText,
-                permissionOverwrites: [
-                    { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-                    { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AddReactions] },
-                    { id: botClient.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AddReactions] }
-                ],
-            });
-
-            // 2. Create Stripe Checkout Session (with channel_id attached)
-            const stripeSession = await stripe.checkout.sessions.create({
-                payment_method_types: ['card'],
-                line_items: [{
-                    price_data: {
-                        currency: 'usd',
-                        product_data: { name: productKey.toUpperCase().replace('_', ' ') },
-                        unit_amount: Math.round(parseFloat(productPrice) * 100),
-                    },
-                    quantity: 1,
-                }],
-                mode: 'payment',
-                success_url: 'https://roblox.com',
-                cancel_url: 'https://roblox.com',
-                metadata: {
-                    discord_user_id: interaction.user.id,
-                    item_id: productKey,
-                    guild_id: interaction.guild.id,
-                    channel_id: orderChannel.id
-                }
-            });
-
-            // 3. Send payment link in channel
-            await orderChannel.send(
-                `Hey <@${interaction.user.id}>, 🛍️ **Complete your payment below!**\n` +
-                `Item: \`${productKey}\`\n\n` +
-                `🔗 **[Click Here to Open Checkout](${stripeSession.url})**\n\n` +
-                `*Your code will be delivered here automatically once payment is confirmed.*`
-            );
-
-            // Edit ephemeral notice and auto-delete
-            await interaction.editReply({ 
-                content: `🛒 Your private order channel has been created: <#${orderChannel.id}>` 
-            });
-
-            setTimeout(async () => {
-                await interaction.deleteReply().catch(() => {});
-            }, 6000);
-
-        } catch (stripeError) {
-            console.error('Checkout creation error:', stripeError);
-            await interaction.editReply({ content: 'Encountered an error generating your checkout. Please try again later.' });
         }
     }
 });

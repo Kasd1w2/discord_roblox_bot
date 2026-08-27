@@ -174,7 +174,7 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 
 // --- DISCORD COMMAND DEFINITIONS ---
 const appCommands = [
-    new SlashCommandBuilder()
+new SlashCommandBuilder()
         .setName('setup-store')
         .setDescription('Create a new product post inside a Forum Channel (Admin)')
         .addChannelOption(opt => opt.setName('forum_channel').setDescription('Select the Forum channel to post in').addChannelTypes(ChannelType.GuildForum).setRequired(true))
@@ -182,6 +182,14 @@ const appCommands = [
         .addNumberOption(opt => opt.setName('price').setDescription('Cost in USD').setRequired(true))
         .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID matching inventory key').setRequired(true))
         .addStringOption(opt => opt.setName('image_url').setDescription('Thumbnail Image URL').setRequired(true))
+        .addStringOption(opt => opt.setName('delivery_method')
+            .setDescription('How will this item be delivered?')
+            .setRequired(true)
+            .addChoices(
+                { name: 'Automated Code', value: 'Automated Code Delivery' },
+                { name: 'Automated Link', value: 'Automated Activation Link' },
+                { name: 'Manual Delivery', value: 'Manual Delivery' }
+            ))
         .addStringOption(opt => opt.setName('catalog_url').setDescription('Roblox Catalog / Rolimons link (Optional)').setRequired(false)),
     new SlashCommandBuilder()
         .setName('my-codes')
@@ -355,10 +363,14 @@ botClient.on('interactionCreate', async interaction => {
             const productKey = interaction.options.getString('item_id');
             const robloxLink = interaction.options.getString('catalog_url');
             const thumbnailPic = interaction.options.getString('image_url');
+            
+            // 1. Grab the selected delivery method
+            const deliveryMethod = interaction.options.getString('delivery_method'); 
 
+            // 2. Pass it into the embed fields dynamically
             const embedFields = [
                 { name: 'Price', value: `$${productPrice} USD`, inline: true },
-                { name: 'Delivery', value: 'Automated Code Delivery', inline: true },
+                { name: 'Delivery', value: deliveryMethod, inline: true }, 
                 { name: '\u200B', value: '\u200B', inline: true }
             ];
 

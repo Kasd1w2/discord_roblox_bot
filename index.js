@@ -392,11 +392,14 @@ botClient.on('interactionCreate', async interaction => {
                 .addFields(embedFields)
                 .setImage(thumbnailPic);
 
-            const buyActionBtn = new ButtonBuilder()
-                .setCustomId(`purchase_action|${productKey}|${productPrice}`)
-                .setLabel(`Purchase ${productTitle}`)
-                .setStyle(ButtonStyle.Primary);
+        // Safely truncate the label to ensure it never exceeds Discord's 80-character limit
+const fullLabel = `Purchase ${productTitle}`;
+const safeLabel = fullLabel.length > 80 ? `${fullLabel.slice(0, 77)}...` : fullLabel;
 
+const buyActionBtn = new ButtonBuilder()
+    .setCustomId(`purchase_action|${productKey}|${productPrice}`)
+    .setLabel(safeLabel)
+    .setStyle(ButtonStyle.Primary);
             const buttonRow = new ActionRowBuilder().addComponents(buyActionBtn);
 
             await targetForum.threads.create({

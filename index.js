@@ -60,19 +60,49 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
     }
 
     if (stripeEvent.type === 'checkout.session.completed') {
-        const checkoutSession = stripeEvent.data.object;
-        const buyerDiscordId = checkoutSession.metadata.discord_user_id;
-        const targetItemId = checkoutSession.metadata.item_id;
-        const guildId = checkoutSession.metadata.guild_id;
+    const checkoutSession = stripeEvent.data.object;
+    const buyerDiscordId = checkoutSession.metadata.discord_user_id;
+    const targetItemId = checkoutSession.metadata.item_id;
+    const channelId = checkoutSession.metadata.channel_id;
 
-        try {
-            const guild = await botClient.guilds.fetch(guildId);
-            // Note: If the channel was already created on button click, you can handle fulfillment tracking here.
-            console.log(`Payment confirmed for item ${targetItemId} by user ${buyerDiscordId}`);
-        } catch (dbErr) {
-            console.error('Error handling checkout completion webhook:', dbErr);
+    try {
+        // 1. Fetch the item and extract one code
+        const itemRecord = await Inventory.findOne({ itemId: targetItemId });
+        
+        if (!itemRecord || itemRecord.codes.length === 0) {
+            console.error(`CRITICAL: User ${buyerDiscordId} paid for ${targetItemId} but stock is empty!`);
+            return res.status(200).json({ received: true }); 
         }
+
+        const purchasedCode = itemRecord.codes.shift();
+        await itemRecord.save();
+
+        // 2. Add the purchase to the user's Ledger
+        let userLedger = await Ledger.findOne({ discordId: buyerDiscordId });
+        if (!userLedger) {
+            userLedger = new Ledger({ discordId: buyerDiscordId, purchases: [] });
+        }
+        userLedger.purchases.push({ item: targetItemId, code: purchasedCode });
+        await userLedger.save();
+
+        // 3. Deliver the code to the specific channel and add the reactions
+        const orderChannel = await botClient.channels.fetch(channelId);
+        if (orderChannel) {
+            const deliveryMessage = await orderChannel.send(
+                `✅ **Payment Confirmed!** Thank you for your purchase, <@${buyerDiscordId}>.\n\n` +
+                `Here is your code for **${targetItemId}**:\n` +
+                `\`\`\`${purchasedCode}\`\`\`\n` +
+                `Please use the reactions below to confirm delivery or report an issue.`
+            );
+            
+            await deliveryMessage.react('✅');
+            await deliveryMessage.react('❌');
+        }
+
+    } catch (dbErr) {
+        console.error('Error handling checkout completion webhook:', dbErr);
     }
+}
 
     return res.status(200).json({ received: true });
 });
@@ -303,60 +333,58 @@ botClient.on('interactionCreate', async interaction => {
             });
 
             // Immediately create the private order channel with the user's name included
-            const guild = interaction.guild;
-            const sanitizedUsername = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
-            const orderChannel = await guild.channels.create({
-                name: `trade-${productKey}-${sanitizedUsername}`.substring(0, 100),
-                type: ChannelType.GuildText,
-                permissionOverwrites: [
-                    {
-                        id: guild.roles.everyone.id,
-                        deny: [PermissionFlagsBits.ViewChannel],
-                    },
-                    {
-                        id: interaction.user.id,
-                        allow: [
-                            PermissionFlagsBits.ViewChannel, 
-                            PermissionFlagsBits.SendMessages, 
-                            PermissionFlagsBits.ReadMessageHistory,
-                            PermissionFlagsBits.AddReactions
-                        ],
-                    },
-                    {
-                        id: botClient.user.id,
-                        allow: [
-                            PermissionFlagsBits.ViewChannel, 
-                            PermissionFlagsBits.SendMessages, 
-                            PermissionFlagsBits.ReadMessageHistory,
-                            PermissionFlagsBits.AddReactions
-                        ],
-                    }
-                ],
-            });
+            // 1. Immediately create the private order channel FIRST
+const guild = interaction.guild;
+const sanitizedUsername = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
+const orderChannel = await guild.channels.create({
+    name: `trade-${productKey}-${sanitizedUsername}`.substring(0, 100),
+    type: ChannelType.GuildText,
+    permissionOverwrites: [
+        { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+        { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AddReactions] },
+        { id: botClient.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AddReactions] }
+    ],
+});
 
-            // Send instructions and the payment link inside their new private channel
-            const deliveryMessage = await orderChannel.send(
-                `Hey <@${interaction.user.id}>, 🛍️ **Complete your payment below!**\n` +
-                `Item: \`${productKey}\`\n\n` +
-                `🔗 **[Click Here to Open Checkout](${checkoutSession.url})**\n\n` +
-                `Once paid, please send your **Roblox Username** here. Afterward, use these reactions:\n` +
-                `✅ **Click Check** if you received your item.\n` +
-                `❌ **Click X** if there is a problem.`
-            );
+// 2. Create Stripe Checkout Session, injecting the channel_id into metadata
+const checkoutSession = await stripe.checkout.sessions.create({
+    payment_method_types: ['card'],
+    line_items: [{
+        price_data: {
+            currency: 'usd',
+            product_data: { name: productKey.toUpperCase().replace('_', ' ') },
+            unit_amount: Math.round(parseFloat(productPrice) * 100),
+        },
+        quantity: 1,
+    }],
+    mode: 'payment',
+    success_url: 'https://roblox.com',
+    cancel_url: 'https://roblox.com',
+    metadata: {
+        discord_user_id: interaction.user.id,
+        item_id: productKey,
+        guild_id: interaction.guild.id,
+        channel_id: orderChannel.id // <--- Now Stripe knows exactly which channel to send the code to
+    }
+});
 
-            await deliveryMessage.react('✅');
-            await deliveryMessage.react('❌');
+// 3. Send ONLY the payment link inside the private channel
+await orderChannel.send(
+    `Hey <@${interaction.user.id}>, 🛍️ **Complete your payment below!**\n` +
+    `Item: \`${productKey}\`\n\n` +
+    `🔗 **[Click Here to Open Checkout](${checkoutSession.url})**\n\n` +
+    `*Your code will be delivered here automatically once payment is confirmed.*`
+);
 
-            // Edit the existing ephemeral "thinking" state to show success
-            await interaction.editReply({ 
-                content: `🛒 Your private order channel has been created: <#${orderChannel.id}>` 
-            });
+// Edit the existing ephemeral "thinking" state to show success
+await interaction.editReply({ 
+    content: `🛒 Your private order channel has been created: <#${orderChannel.id}>` 
+});
 
-            // Auto-delete the ephemeral message after 6 seconds
-            setTimeout(async () => {
-                await interaction.deleteReply().catch(() => {});
-            }, 6000);
-
+// Auto-delete the ephemeral message after 6 seconds
+setTimeout(async () => {
+    await interaction.deleteReply().catch(() => {});
+}, 6000);
         } catch (stripeError) {
             console.error('Checkout creation error:', stripeError);
             await interaction.editReply({ content: 'Encountered an error generating your checkout. Please try again later.' });

@@ -3,6 +3,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const axios = require('axios');
+const TICKET_CHANNEL_ID = '1542544665969164308';
 const { 
     Client, 
     GatewayIntentBits, 
@@ -194,6 +195,9 @@ new SlashCommandBuilder()
     new SlashCommandBuilder()
         .setName('my-codes')
         .setDescription('Inspect your previously purchased items and points'),
+    new SlashCommandBuilder()
+    .setName('request-limited')
+    .setDescription('Post the Request Limited informational embed (Admin)'),
     new SlashCommandBuilder()
         .setName('restock')
         .setDescription('Add stock codes to an item (Admin)')
@@ -428,6 +432,31 @@ const buyActionBtn = new ButtonBuilder()
             });
         }
 
+        if (commandLabel === 'request-limited') {
+    const requestEmbed = new EmbedBuilder()
+        .setTitle('🔎 Need a Specific Limited?')
+        .setDescription(
+            `Can't find the item you're looking for? **We'll help track it down.**\n\n` +
+            `We can source **practically any Limited** upon request, including rare or hard-to-find items.\n\n` +
+            `⏱️ **Sourcing Time:** 12 Hours — 7 Days\n` +
+            `*Times may vary depending on availability and copies on the market.*\n\n` +
+            `💰 **30% Deposit Required**\n` +
+            `A 30% deposit of the agreed price is required to begin sourcing. **Fully refundable if the item cannot be located.**\n\n` +
+            `⭐ **Why Choose Us?**\n` +
+            `⚡ **Fast & Responsive** — Quick communication & updates.\n` +
+            `🔍 **Dedicated Sourcing** — We actively search for your item.\n` +
+            `🛡️ **Reliable Service** — Simple, straightforward process.\n` +
+            `📈 **Strong Track Record** — We've successfully sourced the vast majority of requested items.\n\n` +
+            `🎟️ **Start Sourcing**\n` +
+            `Open a ticket in <#1542544665969164308> and tell us what you're looking for!`
+        )
+        .setColor(0x3B82F6);
+
+    await interaction.channel.send({ embeds: [requestEmbed] });
+    await interaction.reply({ content: '✅ Request Limited embed posted!', flags: 64 });
+}
+
+        
         if (commandLabel === 'restock') {
             const itemId = interaction.options.getString('item_id');
             const newCodes = interaction.options.getString('codes').split(',').map(c => c.trim());

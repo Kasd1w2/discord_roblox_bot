@@ -67,37 +67,25 @@ const botClient = new Client({
 // --- HELPER FUNCTIONS ---
 async function getCryptoAmounts(usdPrice) {
     try {
-        const response = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=ethereum,litecoin,bitcoin,solana&vs_currencies=usd', {
-            headers: { 'User-Agent': 'Mozilla/5.0' }
-        });
-        const prices = response.data;
-
+        // Binance public API is generally more lenient with cloud IPs
+        const [eth, ltc, btc, sol] = await Promise.all([
+            axios.get('https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT'),
+            axios.get('https://api.binance.com/api/v3/ticker/price?symbol=LTCUSDT'),
+            axios.get('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT'),
+            axios.get('https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT')
+        ]);
+        
         return {
-            eth: (usdPrice / prices.ethereum.usd).toFixed(6),
-            ltc: (usdPrice / prices.litecoin.usd).toFixed(4),
-            btc: (usdPrice / prices.bitcoin.usd).toFixed(8),
-            sol: (usdPrice / prices.solana.usd).toFixed(4)
+            eth: (usdPrice / parseFloat(eth.data.price)).toFixed(6),
+            ltc: (usdPrice / parseFloat(ltc.data.price)).toFixed(4),
+            btc: (usdPrice / parseFloat(btc.data.price)).toFixed(8),
+            sol: (usdPrice / parseFloat(sol.data.price)).toFixed(4)
         };
     } catch (error) {
-        console.error('CoinGecko API failed, attempting backup API (CryptoCompare)...', error.message);
-        
-        try {
-            const backupRes = await axios.get('https://min-api.cryptocompare.com/data/pricemulti?fsyms=ETH,LTC,BTC,SOL&tsyms=USD');
-            const data = backupRes.data;
-
-            return {
-                eth: (usdPrice / data.ETH.USD).toFixed(6),
-                ltc: (usdPrice / data.LTC.USD).toFixed(4),
-                btc: (usdPrice / data.BTC.USD).toFixed(8),
-                sol: (usdPrice / data.SOL.USD).toFixed(4)
-            };
-        } catch (backupError) {
-            console.error('Backup crypto API also failed:', backupError.message);
-            return { eth: 'Check live rate', ltc: 'Check live rate', btc: 'Check live rate', sol: 'Check live rate' };
-        }
+        console.error('Binance crypto API failed:', error.message);
+        return { eth: 'Check live rate', ltc: 'Check live rate', btc: 'Check live rate', sol: 'Check live rate' };
     }
 }
-
 function calculatePoints(usdPrice) {
     if (usdPrice <= 0) return 0;
     if (usdPrice <= 100) return 2;
@@ -747,16 +735,35 @@ const buyActionBtn = new ButtonBuilder()
             const [, productKey, productPrice] = interaction.customId.split('|');
             
             const polishedEmbed = new EmbedBuilder()
-                .setTitle('🛍️ Secure Checkout Portal')
-                .setDescription(`Welcome <@${interaction.user.id}>! You are initializing an order for **${productKey.toUpperCase()}**.\n\n` +
-                                `• **Total Price:** \`$${productPrice} USD\`\n` +
-                                `• **Status:** \`Awaiting Payment Selection\`\n\n` +
-                                `Please make your selection from the dropdown menu below.`)
+                // ... (your existing embed code) ...
                 .setColor(0x5865F2);
 
             await interaction.update({ embeds: [polishedEmbed], components: [generatePaymentMenu(productKey, productPrice, interaction.channel.id), getCancelButtonRow()] });
         }
-    }
+
+        // ---> PASTE THE NEW CODE RIGHT HERE <---
+        // 7. Open the Transaction Modal
+        if (interaction.customId.startsWith('open_tx_modal|')) {
+            const [, productKey] = interaction.customId.split('|');
+            
+            const txModal = new ModalBuilder()
+                .setCustomId(`submit_tx_form|${productKey}`)
+                .setTitle('Transaction Proof');
+                
+            const txInput = new TextInputBuilder()
+                .setCustomId('tx_hash_input')
+                .setLabel('Transaction Hash')
+                .setStyle(TextInputStyle.Short)
+                .setPlaceholder('Paste the transaction hash here...')
+                .setRequired(true);
+                
+            txModal.addComponents(new ActionRowBuilder().addComponents(txInput));
+            
+            // showModal acknowledges the interaction, preventing the timeout error
+            await interaction.showModal(txModal);
+        }
+        
+    } // <-- THIS BRACE CLOSES THE `if (interaction.isButton())` BLOCK
 
     // 5. User selected a coupon from the dropdown
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith('apply_coupon|')) {

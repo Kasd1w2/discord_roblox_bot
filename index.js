@@ -240,6 +240,10 @@ new SlashCommandBuilder()
 
 botClient.once('clientReady', async () => {
     console.log(`Bot operational as: ${botClient.user.tag}`);
+    // Default online status
+    botClient.user.setActivity('🛒 Stocked Store Operations', { type: ActivityType.Watching });
+    
+    // ... rest of your clientReady slash command sync code
     const restApi = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
         // 1. Clear lingering global commands across all servers
@@ -366,6 +370,7 @@ botClient.on('interactionCreate', async interaction => {
         }
 
         if (commandLabel === 'setup-store') {
+            updateBotStatus(`🏷️ Creating store listing: ${productTitle}`)
             const selectedChannelOption = interaction.options.getChannel('forum_channel');
             const targetForum = await interaction.guild.channels.fetch(selectedChannelOption.id);
             
@@ -459,6 +464,7 @@ const buyActionBtn = new ButtonBuilder()
         
         if (commandLabel === 'restock') {
             const itemId = interaction.options.getString('item_id');
+            updateBotStatus(`📥 Restocking items for: ${itemId.toUpperCase()}`);
             const newCodes = interaction.options.getString('codes').split(',').map(c => c.trim());
 
             let itemRecord = await Inventory.findOne({ itemId });
@@ -473,6 +479,7 @@ const buyActionBtn = new ButtonBuilder()
         }
 
         if (commandLabel === 'stock') {
+            updateBotStatus(`📊 Checking inventory stock`);
             const allInventory = await Inventory.find({});
             if (!allInventory || allInventory.length === 0) {
                 return interaction.reply({ content: 'No inventory records found in the database.', flags: 64 });
@@ -483,6 +490,7 @@ const buyActionBtn = new ButtonBuilder()
         }
 
         if (commandLabel === 'remove-stock') {
+            updateBotStatus(`🗑️ Removing stock for: ${itemId.toUpperCase()}`);
             const itemId = interaction.options.getString('item_id');
             const codesToRemove = interaction.options.getString('codes').split(',').map(c => c.trim());
 
@@ -500,6 +508,7 @@ const buyActionBtn = new ButtonBuilder()
         }
 
         if (commandLabel === 'deliver') {
+            updateBotStatus(`📦 Delivering item: ${itemId.toUpperCase()}`);
             const targetUser = interaction.options.getUser('buyer');
             const itemId = interaction.options.getString('item_id');
             const itemPrice = interaction.options.getNumber('price') || 0;
@@ -552,6 +561,7 @@ const buyActionBtn = new ButtonBuilder()
         }
 
         if (commandLabel === 'close') {
+            updateBotStatus(`CloseOperation: ${interaction.options.getString('item_id')?.toUpperCase() || 'Unknown Item'}`);
             const status = interaction.options.getString('status');
             const method = interaction.options.getString('method') || 'Unknown Method';
             const price = interaction.options.getNumber('price');
@@ -764,6 +774,7 @@ const buyActionBtn = new ButtonBuilder()
         const orderChannel = await interaction.guild.channels.fetch(channelId);
 
         if (selectedValue === 'select_stripe') {
+            updateBotStatus(`💳 Processing Stripe checkout`);
             await interaction.deferUpdate();
 
             const stripeSession = await stripe.checkout.sessions.create({

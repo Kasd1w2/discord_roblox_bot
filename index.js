@@ -238,11 +238,18 @@ botClient.once('clientReady', async () => {
     console.log(`Bot operational as: ${botClient.user.tag}`);
     const restApi = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
+        // 1. Clear lingering global commands across all servers
+        await restApi.put(
+            Routes.applicationCommands(botClient.user.id),
+            { body: [] }
+        );
+
+        // 2. Register fresh guild-level commands
         await restApi.put(
             Routes.applicationGuildCommands(botClient.user.id, '1542259049494610013'), 
             { body: appCommands }
         );
-        console.log('Guild-level slash commands synchronized.');
+        console.log('Commands synchronized cleanly.');
     } catch (syncError) {
         console.error('Command synchronization failed:', syncError);
     }

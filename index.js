@@ -67,57 +67,10 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 
         try {
             const guild = await botClient.guilds.fetch(guildId);
-<<<<<<< Updated upstream
-            const orderChannel = await guild.channels.create({
-                name: `trade-${targetItemId}`,
-                type: ChannelType.GuildText,
-                permissionOverwrites: [
-                    {
-                        id: guild.roles.everyone.id,
-                        deny: [PermissionFlagsBits.ViewChannel],
-                    },
-                    {
-                        id: buyerDiscordId,
-                        allow: [
-                            PermissionFlagsBits.ViewChannel, 
-                            PermissionFlagsBits.SendMessages, 
-                            PermissionFlagsBits.ReadMessageHistory,
-                            PermissionFlagsBits.AddReactions
-                        ],
-                    },
-                    {
-                        id: botClient.user.id,
-                        allow: [
-                            PermissionFlagsBits.ViewChannel, 
-                            PermissionFlagsBits.SendMessages, 
-                            PermissionFlagsBits.ReadMessageHistory,
-                            PermissionFlagsBits.AddReactions
-                        ],
-                    }
-                ],
-            });
-
-            const deliveryMessage = await orderChannel.send(
-                `Hey <@${buyerDiscordId}>, 🛍️ **Payment Successful!**\n` +
-                `Item Purchased: \`${targetItemId}\`\n\n` +
-                `Please send your **Roblox Username** in this channel so staff can send you the trade offer.\n` +
-                `Once you receive and accept your limited item on Roblox, please confirm below:\n` +
-                `✅ **Click Check** if you received your item.\n` +
-                `❌ **Click X** if there is a problem (this will ping management).`
-            );
-
-            await deliveryMessage.react('✅');
-            await deliveryMessage.react('❌');
-
-            console.log(`Created limited trade channel for item ${targetItemId} and user ${buyerDiscordId}`);
-        } catch (dbErr) {
-            console.error('Error creating order channel during fulfillment:', dbErr);
-=======
             // Note: If the channel was already created on button click, you can handle fulfillment tracking here.
             console.log(`Payment confirmed for item ${targetItemId} by user ${buyerDiscordId}`);
         } catch (dbErr) {
             console.error('Error handling checkout completion webhook:', dbErr);
->>>>>>> Stashed changes
         }
     }
 

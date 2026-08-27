@@ -497,22 +497,25 @@ const buyActionBtn = new ButtonBuilder()
         }
 
         if (commandLabel === 'remove-stock') {
-            updateBotStatus(`🗑️ Removing stock for: ${itemId.toUpperCase()}`);
-            const itemId = interaction.options.getString('item_id');
-            const codesToRemove = interaction.options.getString('codes').split(',').map(c => c.trim());
+    // 1. Get itemId first
+    const itemId = interaction.options.getString('item_id');
+    // 2. Then pass it to updateBotStatus
+    updateBotStatus(`🗑️ Removing stock for: ${itemId.toUpperCase()}`);
+    
+    const codesToRemove = interaction.options.getString('codes').split(',').map(c => c.trim());
 
-            let itemRecord = await Inventory.findOne({ itemId });
-            if (!itemRecord) {
-                return interaction.reply({ content: `❌ Item \`${itemId}\` not found in database.`, flags: 64 });
-            }
+    let itemRecord = await Inventory.findOne({ itemId });
+    if (!itemRecord) {
+        return interaction.reply({ content: `❌ Item \`${itemId}\` not found in database.`, flags: 64 });
+    }
 
-            const originalLength = itemRecord.codes.length;
-            itemRecord.codes = itemRecord.codes.filter(code => !codesToRemove.includes(code));
-            await itemRecord.save();
+    const originalLength = itemRecord.codes.length;
+    itemRecord.codes = itemRecord.codes.filter(code => !codesToRemove.includes(code));
+    await itemRecord.save();
 
-            const removedCount = originalLength - itemRecord.codes.length;
-            await interaction.reply({ content: `🗑️ Removed ${removedCount} codes from \`${itemId}\`. Remaining stock: ${itemRecord.codes.length}`, flags: 64 });
-        }
+    const removedCount = originalLength - itemRecord.codes.length;
+    await interaction.reply({ content: `🗑️ Removed ${removedCount} codes from \`${itemId}\`. Remaining stock: ${itemRecord.codes.length}`, flags: 64 });
+}
 
         if (commandLabel === 'deliver') {
             updateBotStatus(`📦 Delivering item: ${itemId.toUpperCase()}`);

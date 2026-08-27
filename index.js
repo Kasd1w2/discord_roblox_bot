@@ -104,6 +104,15 @@ function generatePaymentMenu(productKey, productPrice, channelId) {
     return new ActionRowBuilder().addComponents(selectMenu);
 }
 
+function getCancelButtonRow() {
+    const cancelBtn = new ButtonBuilder()
+        .setCustomId('close_order')
+        .setLabel('Cancel Order')
+        .setStyle(ButtonStyle.Danger)
+        .setEmoji('🗑️');
+    return new ActionRowBuilder().addComponents(cancelBtn);
+}
+
 // --- STRIPE WEBHOOK ENDPOINT (AUTOMATED CODE DELIVERY & POINTS) ---
 webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
     const signatureHeader = req.headers['stripe-signature'];
@@ -174,8 +183,8 @@ const appCommands = [
         .addStringOption(opt => opt.setName('title').setDescription('Display Title / Post Name').setRequired(true))
         .addNumberOption(opt => opt.setName('price').setDescription('Cost in USD').setRequired(true))
         .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID matching inventory key').setRequired(true))
-        .addStringOption(opt => opt.setName('catalog_url').setDescription('Roblox Catalog link').setRequired(true))
-        .addStringOption(opt => opt.setName('image_url').setDescription('Thumbnail Image URL').setRequired(true)),
+        .addStringOption(opt => opt.setName('image_url').setDescription('Thumbnail Image URL').setRequired(true))
+        .addStringOption(opt => opt.setName('catalog_url').setDescription('Roblox Catalog / Rolimons link (Optional)').setRequired(false)),
     new SlashCommandBuilder()
         .setName('my-codes')
         .setDescription('Inspect your previously purchased items and points'),
@@ -196,7 +205,8 @@ const appCommands = [
         .setName('deliver')
         .setDescription('Pull code from database and send code embed with user ping (Admin)')
         .addUserOption(opt => opt.setName('buyer').setDescription('Select the user to ping').setRequired(true))
-        .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID key to pull code from').setRequired(true)),
+        .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID key to pull code from').setRequired(true))
+        .addNumberOption(opt => opt.setName('price').setDescription('Order price in USD to award points (Optional)').setRequired(false)),
     new SlashCommandBuilder()
         .setName('close')
         .setDescription('Close order channel and log successful/failed sale (Admin)')
@@ -348,16 +358,21 @@ botClient.on('interactionCreate', async interaction => {
             const robloxLink = interaction.options.getString('catalog_url');
             const thumbnailPic = interaction.options.getString('image_url');
 
+            const embedFields = [
+                { name: 'Price', value: `$${productPrice} USD`, inline: true },
+                { name: 'Delivery', value: 'Automated Code Delivery', inline: true },
+                { name: '\u200B', value: '\u200B', inline: true }
+            ];
+
+            if (robloxLink) {
+                embedFields.push({ name: 'Rolimons Link', value: `[View item](${robloxLink})`, inline: false });
+            }
+
             const listingEmbed = new EmbedBuilder()
                 .setTitle(`${productTitle}`)
                 .setDescription(`Click on the button below to purchase!`)
                 .setColor(0x2B2D31)
-                .addFields(
-                    { name: 'Price', value: `$${productPrice} USD`, inline: true },
-                    { name: 'Delivery', value: 'Automated Code Delivery', inline: true },
-                    { name: '\u200B', value: '\u200B', inline: true },
-                    { name: 'Rolimons Link', value: `[View item](${robloxLink})`, inline: false }
-                )
+                .addFields(embedFields)
                 .setImage(thumbnailPic);
 
             const buyActionBtn = new ButtonBuilder()
@@ -438,6 +453,7 @@ botClient.on('interactionCreate', async interaction => {
         if (commandLabel === 'deliver') {
             const targetUser = interaction.options.getUser('buyer');
             const itemId = interaction.options.getString('item_id');
+            const itemPrice = interaction.options.getNumber('price') || 0;
 
             if (!interaction.channel.name.startsWith('trade-')) {
                 return interaction.reply({ content: '🛑 This command can only be used inside a trade/order channel.', flags: 64 });
@@ -452,6 +468,18 @@ botClient.on('interactionCreate', async interaction => {
                 const deliveredCode = itemRecord.codes.shift();
                 await itemRecord.save();
 
+                let userLedger = await Ledger.findOne({ discordId: targetUser.id });
+                if (!userLedger) {
+                    userLedger = new Ledger({ discordId: targetUser.id, purchases: [], points: 0, coupons: [] });
+                }
+
+                const pointsEarned = calculatePoints(itemPrice);
+                userLedger.purchases.push({ item: itemId, code: deliveredCode });
+                if (pointsEarned > 0) {
+                    userLedger.points += pointsEarned;
+                }
+                await userLedger.save();
+
                 const deliveryEmbed = new EmbedBuilder()
                     .setTitle('🎁 Order Delivery')
                     .setDescription(`Here is your requested code for **${itemId.toUpperCase()}**:\n\`\`\`${deliveredCode}\`\`\``)
@@ -459,10 +487,12 @@ botClient.on('interactionCreate', async interaction => {
                     .setFooter({ text: 'Thank you for your business!' })
                     .setTimestamp();
 
+                let pointNotice = pointsEarned > 0 ? `\n⭐ You earned **${pointsEarned} points** for this order!` : '';
+
                 await interaction.reply({ content: `✅ Successfully pulled code for ${targetUser.tag} and sent it to the channel.`, flags: 64 });
                 
                 await interaction.channel.send({
-                    content: `Hey <@${targetUser.id}>! Here is your delivery:`,
+                    content: `Hey <@${targetUser.id}>! Here is your delivery:${pointNotice}`,
                     embeds: [deliveryEmbed]
                 });
                 await interaction.channel.send(`🙏 Thank you again for your business, <@${targetUser.id}>! If you have a moment, please drop a vouch in <#1542340439166820434>. We'd really appreciate it!`);
@@ -586,11 +616,12 @@ botClient.on('interactionCreate', async interaction => {
 
                     const btnYes = new ButtonBuilder().setCustomId(`use_coupon_yes|${productKey}|${productPrice}`).setLabel('Yes, apply coupon').setStyle(ButtonStyle.Success);
                     const btnNo = new ButtonBuilder().setCustomId(`use_coupon_no|${productKey}|${productPrice}`).setLabel('No, save for later').setStyle(ButtonStyle.Secondary);
-                    
+                    const btnCancel = new ButtonBuilder().setCustomId('close_order').setLabel('Cancel Order').setStyle(ButtonStyle.Danger).setEmoji('🗑️');
+
                     await orderChannel.send({
                         content: `<@${interaction.user.id}>`,
                         embeds: [couponEmbed],
-                        components: [new ActionRowBuilder().addComponents(btnYes, btnNo)]
+                        components: [new ActionRowBuilder().addComponents(btnYes, btnNo, btnCancel)]
                     });
                 } else {
                     const polishedEmbed = new EmbedBuilder()
@@ -601,7 +632,7 @@ botClient.on('interactionCreate', async interaction => {
                                         `Please make your selection from the dropdown menu below.`)
                         .setColor(0x5865F2);
 
-                    await orderChannel.send({ embeds: [polishedEmbed], components: [generatePaymentMenu(productKey, productPrice, orderChannel.id)] });
+                    await orderChannel.send({ embeds: [polishedEmbed], components: [generatePaymentMenu(productKey, productPrice, orderChannel.id), getCancelButtonRow()] });
                 }
 
             } catch (err) {
@@ -629,7 +660,7 @@ botClient.on('interactionCreate', async interaction => {
 
             await interaction.update({
                 embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setDescription('Please select the coupon you wish to apply from the dropdown below:')],
-                components: [new ActionRowBuilder().addComponents(selectMenu)]
+                components: [new ActionRowBuilder().addComponents(selectMenu), getCancelButtonRow()]
             });
         }
 
@@ -645,7 +676,7 @@ botClient.on('interactionCreate', async interaction => {
                                 `Please make your selection from the dropdown menu below.`)
                 .setColor(0x5865F2);
 
-            await interaction.update({ embeds: [polishedEmbed], components: [generatePaymentMenu(productKey, productPrice, interaction.channel.id)] });
+            await interaction.update({ embeds: [polishedEmbed], components: [generatePaymentMenu(productKey, productPrice, interaction.channel.id), getCancelButtonRow()] });
         }
     }
 
@@ -673,7 +704,7 @@ botClient.on('interactionCreate', async interaction => {
                                 `Please make your selection from the dropdown menu below.`)
                 .setColor(0x00FF00);
 
-            await interaction.editReply({ embeds: [discountedEmbed], components: [generatePaymentMenu(productKey, newPrice, interaction.channel.id)] });
+            await interaction.editReply({ embeds: [discountedEmbed], components: [generatePaymentMenu(productKey, newPrice, interaction.channel.id), getCancelButtonRow()] });
         }
     }
 
@@ -719,7 +750,9 @@ botClient.on('interactionCreate', async interaction => {
                 .setColor(0x635BFF);
 
             const payButton = new ButtonBuilder().setLabel(`Pay $${productPrice} via Stripe`).setURL(stripeSession.url).setStyle(ButtonStyle.Link);
-            await orderChannel.send({ embeds: [checkoutEmbed], components: [new ActionRowBuilder().addComponents(payButton)] });
+            const cancelBtn = new ButtonBuilder().setCustomId('close_order').setLabel('Cancel Order').setStyle(ButtonStyle.Danger).setEmoji('🗑️');
+
+            await orderChannel.send({ embeds: [checkoutEmbed], components: [new ActionRowBuilder().addComponents(payButton, cancelBtn)] });
             await interaction.message.delete().catch(() => {});
         }
 
@@ -740,7 +773,9 @@ botClient.on('interactionCreate', async interaction => {
                 .setFooter({ text: 'After completing payment, click the button below to submit your transaction hash.' });
 
             const submitTxBtn = new ButtonBuilder().setCustomId(`open_tx_modal|${productKey}`).setLabel('Submit Transaction Hash').setStyle(ButtonStyle.Success).setEmoji('📝');
-            await orderChannel.send({ embeds: [cryptoEmbed], components: [new ActionRowBuilder().addComponents(submitTxBtn)] });
+            const cancelBtn = new ButtonBuilder().setCustomId('close_order').setLabel('Cancel Order').setStyle(ButtonStyle.Danger).setEmoji('🗑️');
+
+            await orderChannel.send({ embeds: [cryptoEmbed], components: [new ActionRowBuilder().addComponents(submitTxBtn, cancelBtn)] });
             await interaction.message.delete().catch(() => {});
         }
     }

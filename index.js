@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const axios = require('axios');
 const { 
     Client, 
     GatewayIntentBits, 
@@ -12,6 +13,10 @@ const {
     ActionRowBuilder, 
     ButtonBuilder, 
     ButtonStyle,
+    StringSelectMenuBuilder,
+    ModalBuilder,
+    TextInputBuilder,
+    TextInputStyle,
     ChannelType,
     PermissionFlagsBits
 } = require('discord.js');
@@ -43,6 +48,24 @@ const botClient = new Client({
     ] 
 });
 
+// --- HELPER FUNCTION: FETCH LIVE CRYPTO RATES ---
+async function getCryptoAmounts(usdPrice) {
+    try {
+        const response = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=ethereum,litecoin,bitcoin,solana&vs_currencies=usd');
+        const prices = response.data;
+
+        return {
+            eth: (usdPrice / prices.ethereum.usd).toFixed(6),
+            ltc: (usdPrice / prices.litecoin.usd).toFixed(4),
+            btc: (usdPrice / prices.bitcoin.usd).toFixed(8),
+            sol: (usdPrice / prices.solana.usd).toFixed(4)
+        };
+    } catch (error) {
+        console.error('Failed to fetch crypto prices from CoinGecko, falling back to approximate labels:', error.message);
+        return { eth: '?', ltc: '?', btc: '?', sol: '?' };
+    }
+}
+
 // --- STRIPE WEBHOOK ENDPOINT (AUTOMATED CODE DELIVERY) ---
 webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
     const signatureHeader = req.headers['stripe-signature'];
@@ -66,7 +89,6 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         const channelId = session.metadata.channel_id;
 
         try {
-            // 1. Fetch item and remove one code from inventory
             const itemRecord = await Inventory.findOne({ itemId: targetItemId });
             
             if (!itemRecord || itemRecord.codes.length === 0) {
@@ -77,7 +99,6 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
             const purchasedCode = itemRecord.codes.shift();
             await itemRecord.save();
 
-            // 2. Add purchase to Ledger
             let userLedger = await Ledger.findOne({ discordId: buyerDiscordId });
             if (!userLedger) {
                 userLedger = new Ledger({ discordId: buyerDiscordId, purchases: [] });
@@ -85,7 +106,6 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
             userLedger.purchases.push({ item: targetItemId, code: purchasedCode });
             await userLedger.save();
 
-            // 3. Deliver code directly to the private trade channel
             const orderChannel = await botClient.channels.fetch(channelId);
             if (orderChannel) {
                 const deliveryMessage = await orderChannel.send(
@@ -289,6 +309,7 @@ botClient.on('interactionCreate', async interaction => {
         }
     }
 
+    // --- BUTTON INTERACTION HANDLERS ---
     if (interaction.isButton()) {
         if (interaction.customId === 'close_order') {
             await interaction.reply({ content: '🗑️ Canceling order... closing channel in 5 seconds.' });
@@ -304,7 +325,6 @@ botClient.on('interactionCreate', async interaction => {
             const [, productKey, productPrice] = interaction.customId.split('|');
 
             try {
-                // Check inventory stock in MongoDB first
                 const itemRecord = await Inventory.findOne({ itemId: productKey });
                 
                 if (!itemRecord || itemRecord.codes.length === 0) {
@@ -319,7 +339,6 @@ botClient.on('interactionCreate', async interaction => {
                     return;
                 }
 
-                // Create the private order channel
                 const guild = interaction.guild;
                 const sanitizedUsername = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
                 const orderChannel = await guild.channels.create({
@@ -332,34 +351,45 @@ botClient.on('interactionCreate', async interaction => {
                     ],
                 });
 
-                // Send a selection embed inside their private channel
-                const choiceEmbed = new EmbedBuilder()
-                    .setTitle('Select Payment Method')
-                    .setDescription(`Hey <@${interaction.user.id}>, choose how you would like to pay for **${productKey}** ($${productPrice} USD):`)
-                    .setColor(0x2B2D31);
+                // Polished Embed with Dropdown Menu
+                const polishedEmbed = new EmbedBuilder()
+                    .setTitle('🛍️ Secure Checkout Portal')
+                    .setDescription(`Welcome <@${interaction.user.id}>! You are initializing an order for **${productKey.toUpperCase()}**.\n\n` +
+                                  `• **Total Price:** \`$${productPrice} USD\`\n` +
+                                  `• **Status:** \`Awaiting Payment Selection\`\n\n` +
+                                  `Please make your selection from the dropdown menu below to proceed with your preferred checkout method.`)
+                    .setColor(0x5865F2)
+                    .setFooter({ text: 'Powered by Automated Escrow System' });
 
-                const stripeBtn = new ButtonBuilder()
-                    .setCustomId(`pay_stripe|${productKey}|${productPrice}|${orderChannel.id}`)
-                    .setLabel('Pay with Card (Stripe)')
-                    .setStyle(ButtonStyle.Primary)
-                    .setEmoji('💳');
+                const selectMenu = new StringSelectMenuBuilder()
+                    .setCustomId(`payment_select|${productKey}|${productPrice}|${orderChannel.id}`)
+                    .setPlaceholder('📂 Choose your payment method...')
+                    .addOptions([
+                        {
+                            label: 'Pay with Card (Stripe)',
+                            description: 'Instant automated delivery via Credit/Debit card',
+                            value: 'select_stripe',
+                            emoji: '💳'
+                        },
+                        {
+                            label: 'Pay with Cryptocurrency',
+                            description: 'Pay using ETH, LTC, BTC, or SOL',
+                            value: 'select_crypto',
+                            emoji: '🪙'
+                        },
+                        {
+                            label: 'Cancel Order',
+                            description: 'Discard transaction and close channel',
+                            value: 'select_cancel',
+                            emoji: '🗑️'
+                        }
+                    ]);
 
-                const cryptoBtn = new ButtonBuilder()
-                    .setCustomId(`pay_crypto|${productKey}|${productPrice}|${orderChannel.id}`)
-                    .setLabel('Pay with Crypto')
-                    .setStyle(ButtonStyle.Secondary)
-                    .setEmoji('🪙');
-
-                const cancelBtn = new ButtonBuilder()
-                    .setCustomId('close_order')
-                    .setLabel('Cancel Order')
-                    .setStyle(ButtonStyle.Danger);
-
-                const choiceRow = new ActionRowBuilder().addComponents(stripeBtn, cryptoBtn, cancelBtn);
+                const menuRow = new ActionRowBuilder().addComponents(selectMenu);
 
                 await orderChannel.send({
-                    embeds: [choiceEmbed],
-                    components: [choiceRow]
+                    embeds: [polishedEmbed],
+                    components: [menuRow]
                 });
 
                 await interaction.editReply({ 
@@ -375,81 +405,130 @@ botClient.on('interactionCreate', async interaction => {
                 await interaction.editReply({ content: 'Encountered an error opening your order channel.' });
             }
         }
+    }
 
-        if (interaction.customId.startsWith('pay_stripe|')) {
-            await interaction.deferUpdate();
+    // --- SELECT MENU HANDLER ---
+    if (interaction.isStringSelectMenu()) {
+        if (interaction.customId.startsWith('payment_select|')) {
             const [, productKey, productPrice, channelId] = interaction.customId.split('|');
+            const selectedValue = interaction.values[0];
             const orderChannel = await interaction.guild.channels.fetch(channelId);
 
-            const stripeSession = await stripe.checkout.sessions.create({
-                payment_method_types: ['card'],
-                line_items: [{
-                    price_data: {
-                        currency: 'usd',
-                        product_data: { name: productKey.toUpperCase().replace('_', ' ') },
-                        unit_amount: Math.round(parseFloat(productPrice) * 100),
-                    },
-                    quantity: 1,
-                }],
-                mode: 'payment',
-                success_url: 'https://roblox.com',
-                cancel_url: 'https://roblox.com',
-                metadata: {
-                    discord_user_id: interaction.user.id,
-                    item_id: productKey,
-                    guild_id: interaction.guild.id,
-                    channel_id: orderChannel.id
-                }
-            });
+            if (selectedValue === 'select_cancel') {
+                await interaction.reply({ content: '🗑️ Order canceled. Closing channel in 5 seconds...', flags: 64 });
+                setTimeout(async () => {
+                    await orderChannel.delete().catch(() => {});
+                }, 5000);
+                return;
+            }
 
-            const checkoutEmbed = new EmbedBuilder()
-                .setTitle('💳 Stripe Checkout')
-                .setDescription(`Click the button below to complete your card payment safely via Stripe.\n\n*Your code will be delivered here automatically once payment succeeds.*`)
-                .setColor(0x635BFF);
+            if (selectedValue === 'select_stripe') {
+                await interaction.deferUpdate();
 
-            const payButton = new ButtonBuilder().setLabel('Open Stripe Checkout').setURL(stripeSession.url).setStyle(ButtonStyle.Link);
-            const backRow = new ActionRowBuilder().addComponents(payButton);
+                const stripeSession = await stripe.checkout.sessions.create({
+                    payment_method_types: ['card'],
+                    line_items: [{
+                        price_data: {
+                            currency: 'usd',
+                            product_data: { name: productKey.toUpperCase().replace('_', ' ') },
+                            unit_amount: Math.round(parseFloat(productPrice) * 100),
+                        },
+                        quantity: 1,
+                    }],
+                    mode: 'payment',
+                    success_url: 'https://roblox.com',
+                    cancel_url: 'https://roblox.com',
+                    metadata: {
+                        discord_user_id: interaction.user.id,
+                        item_id: productKey,
+                        guild_id: interaction.guild.id,
+                        channel_id: orderChannel.id
+                    }
+                });
 
-            await orderChannel.send({ embeds: [checkoutEmbed], components: [backRow] });
-            await interaction.message.delete().catch(() => {});
+                const checkoutEmbed = new EmbedBuilder()
+                    .setTitle('💳 Stripe Card Checkout')
+                    .setDescription(`Click the secure link below to open your Stripe invoice.\n\n*Your code will post here automatically once paid.*`)
+                    .setColor(0x635BFF);
+
+                const payButton = new ButtonBuilder().setLabel('Open Stripe Checkout').setURL(stripeSession.url).setStyle(ButtonStyle.Link);
+                const backRow = new ActionRowBuilder().addComponents(payButton);
+
+                await orderChannel.send({ embeds: [checkoutEmbed], components: [backRow] });
+                await interaction.message.delete().catch(() => {});
+            }
+
+            if (selectedValue === 'select_crypto') {
+                await interaction.deferUpdate();
+
+                // Fetch live prices via API
+                const amounts = await getCryptoAmounts(parseFloat(productPrice));
+
+                const cryptoEmbed = new EmbedBuilder()
+                    .setTitle('🪙 Cryptocurrency Payment Gateway')
+                    .setDescription(`Target item: **${productKey.toUpperCase()}**\nEquivalent Value: **$${productPrice} USD**\n\nSend the exact live amount below to one of our official addresses:`)
+                    .setColor(0xF7931A)
+                    .addFields(
+                        { name: '🔹 Ethereum (ETH)', value: `\`\`\`${amounts.eth} ETH\`\`\`\n\`\`\`0x42d01fE1f89C6cDE28ef7a34Ef5A7B452eD6B271\`\`\``, inline: false },
+                        { name: '🟣 Litecoin (LTC)', value: `\`\`\`${amounts.ltc} LTC\`\`\`\n\`\`\`MWSeYJ3qgm3j5yYGGFimu5ebSzHA9oUvBy\`\`\``, inline: false },
+                        { name: '🟠 Bitcoin (BTC)', value: `\`\`\`${amounts.btc} BTC\`\`\`\n\`\`\`34hRphphvMtvqiWPawAESR1bxkfvUoFNhh\`\`\``, inline: false },
+                        { name: '🟢 Solana (SOL)', value: `\`\`\`${amounts.sol} SOL\`\`\`\n\`\`\`222P8wKAC2s2UcfNyANYre8yVKjU1c3C3MA7mYqK92ZB\`\`\``, inline: false }
+                    )
+                    .setFooter({ text: 'After completing payment, click the button below to submit your transaction hash.' });
+
+                const submitTxBtn = new ButtonBuilder()
+                    .setCustomId(`open_tx_modal|${productKey}`)
+                    .setLabel('Submit Transaction Hash')
+                    .setStyle(ButtonStyle.Success)
+                    .setEmoji('📝');
+
+                const cryptoRow = new ActionRowBuilder().addComponents(submitTxBtn);
+
+                await orderChannel.send({ embeds: [cryptoEmbed], components: [cryptoRow] });
+                await interaction.message.delete().catch(() => {});
+            }
         }
+    }
 
-        if (interaction.customId.startsWith('pay_crypto|')) {
-            await interaction.deferUpdate();
-            const [, productKey, productPrice, channelId] = interaction.customId.split('|');
-            const orderChannel = await interaction.guild.channels.fetch(channelId);
+    // --- OPEN TRANSACTION SUBMISSION MODAL ---
+    if (interaction.isButton() && interaction.customId.startsWith('open_tx_modal|')) {
+        const [, productKey] = interaction.customId.split('|');
 
-            const cryptoEmbed = new EmbedBuilder()
-                .setTitle('🪙 Cryptocurrency Payment')
-                .setDescription(`You selected to pay with crypto for **${productKey}**.\n\nPlease send **$${productPrice} USD** worth of crypto to one of the addresses below:`)
-                .setColor(0xF7931A)
-                .addFields(
-                    { name: '🔹 Ethereum (ETH)', value: `\`\`\`0x42d01fE1f89C6cDE28ef7a34Ef5A7B452eD6B271\`\`\``, inline: false },
-                    { name: '🟣 Litecoin (LTC)', value: `\`\`\`MWSeYJ3qgm3j5yYGGFimu5ebSzHA9oUvBy\`\`\``, inline: false },
-                    { name: '🟠 Bitcoin (BTC)', value: `\`\`\`34hRphphvMtvqiWPawAESR1bxkfvUoFNhh\`\`\``, inline: false },
-                    { name: '🟢 Solana (SOL)', value: `\`\`\`222P8wKAC2s2UcfNyANYre8yVKjU1c3C3MA7mYqK92ZB\`\`\``, inline: false }
-                )
-                .setFooter({ text: 'After sending your payment, click the button below to alert staff.' });
+        const txModal = new ModalBuilder()
+            .setCustomId(`submit_tx_form|${productKey}`)
+            .setTitle('Submit Crypto Payment Details');
 
-            const confirmCryptoBtn = new ButtonBuilder()
-                .setCustomId('crypto_notify_admin')
-                .setLabel('I Have Paid (Notify Admin)')
-                .setStyle(ButtonStyle.Success)
-                .setEmoji('✅');
+        const txInput = new TextInputBuilder()
+            .setCustomId('tx_hash_input')
+            .setLabel('Transaction Hash / ID / Proof')
+            .setStyle(TextInputStyle.Paragraph)
+            .setPlaceholder('Paste your blockchain transaction hash or link here...')
+            .setRequired(true);
 
-            const cryptoRow = new ActionRowBuilder().addComponents(confirmCryptoBtn);
+        const row = new ActionRowBuilder().addComponents(txInput);
+        txModal.addComponents(row);
 
-            await orderChannel.send({ embeds: [cryptoEmbed], components: [cryptoRow] });
-            await interaction.message.delete().catch(() => {});
-        }
+        await interaction.showModal(txModal);
+    }
 
-        if (interaction.customId === 'crypto_notify_admin') {
-            const ADMIN_ROLE_ID = '1542306776622309437';
-            
-            await interaction.reply({ 
-                content: `🔔 <@&${ADMIN_ROLE_ID}>, <@${interaction.user.id}> has indicated they paid via crypto! Please verify the transaction hash and manually hand over their item code.` 
-            });
-        }
+    // --- HANDLE MODAL SUBMISSION (FORUM/TICKET NOTIFICATION) ---
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('submit_tx_form|')) {
+        const [, productKey] = interaction.customId.split('|');
+        const userTxProof = interaction.fields.getTextInputValue('tx_hash_input');
+        const ADMIN_ROLE_ID = '1542306776622309437';
+
+        const confirmationEmbed = new EmbedBuilder()
+            .setTitle('📥 Transaction Submitted')
+            .setDescription(`Thank you! Your transaction proof has been logged for review.\n\n**Item:** \`${productKey}\`\n**Submitted Hash:**\n\`\`\`${userTxProof}\`\`\``)
+            .setColor(0x00FF00)
+            .setTimestamp();
+
+        await interaction.reply({ embeds: [confirmationEmbed] });
+
+        // Ping staff in the trade channel
+        await interaction.channel.send(
+            `🔔 <@&${ADMIN_ROLE_ID}>, <@${interaction.user.id}> has submitted a crypto transaction proof for **${productKey}**! Please verify and deliver the code manually.`
+        );
     }
 });
 

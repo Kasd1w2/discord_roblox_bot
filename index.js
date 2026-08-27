@@ -304,7 +304,7 @@ botClient.on('interactionCreate', async interaction => {
             const [, productKey, productPrice] = interaction.customId.split('|');
 
             try {
-                // Check inventory stock in MongoDB
+                // Check inventory stock in MongoDB first
                 const itemRecord = await Inventory.findOne({ itemId: productKey });
                 
                 if (!itemRecord || itemRecord.codes.length === 0) {
@@ -319,7 +319,7 @@ botClient.on('interactionCreate', async interaction => {
                     return;
                 }
 
-                // 1. Create the private order channel FIRST
+                // Create the private order channel
                 const guild = interaction.guild;
                 const sanitizedUsername = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
                 const orderChannel = await guild.channels.create({
@@ -332,52 +332,36 @@ botClient.on('interactionCreate', async interaction => {
                     ],
                 });
 
-                // 2. Create Stripe Checkout Session (with channel_id attached)
-                const stripeSession = await stripe.checkout.sessions.create({
-                    payment_method_types: ['card'],
-                    line_items: [{
-                        price_data: {
-                            currency: 'usd',
-                            product_data: { name: productKey.toUpperCase().replace('_', ' ') },
-                            unit_amount: Math.round(parseFloat(productPrice) * 100),
-                        },
-                        quantity: 1,
-                    }],
-                    mode: 'payment',
-                    success_url: 'https://roblox.com',
-                    cancel_url: 'https://roblox.com',
-                    metadata: {
-                        discord_user_id: interaction.user.id,
-                        item_id: productKey,
-                        guild_id: interaction.guild.id,
-                        channel_id: orderChannel.id
-                    }
-                });
-
-                // 3. Send payment link in an embed with buttons
-                const checkoutEmbed = new EmbedBuilder()
-                    .setTitle('Pending Checkout')
-                    .setDescription(`Hey <@${interaction.user.id}>, 🛍️ **Complete your payment!**\n\nItem: \`${productKey}\`\n\n*Your code will be delivered here automatically once payment is confirmed.*`)
+                // Send a selection embed inside their private channel
+                const choiceEmbed = new EmbedBuilder()
+                    .setTitle('Select Payment Method')
+                    .setDescription(`Hey <@${interaction.user.id}>, choose how you would like to pay for **${productKey}** ($${productPrice} USD):`)
                     .setColor(0x2B2D31);
 
-                const payButton = new ButtonBuilder()
-                    .setLabel('Open Checkout')
-                    .setURL(stripeSession.url) 
-                    .setStyle(ButtonStyle.Link);
+                const stripeBtn = new ButtonBuilder()
+                    .setCustomId(`pay_stripe|${productKey}|${productPrice}|${orderChannel.id}`)
+                    .setLabel('Pay with Card (Stripe)')
+                    .setStyle(ButtonStyle.Primary)
+                    .setEmoji('💳');
 
-                const closeButton = new ButtonBuilder()
+                const cryptoBtn = new ButtonBuilder()
+                    .setCustomId(`pay_crypto|${productKey}|${productPrice}|${orderChannel.id}`)
+                    .setLabel('Pay with Crypto')
+                    .setStyle(ButtonStyle.Secondary)
+                    .setEmoji('🪙');
+
+                const cancelBtn = new ButtonBuilder()
                     .setCustomId('close_order')
-                    .setLabel('Cancel & Close')
+                    .setLabel('Cancel Order')
                     .setStyle(ButtonStyle.Danger);
 
-                const checkoutRow = new ActionRowBuilder().addComponents(payButton, closeButton);
+                const choiceRow = new ActionRowBuilder().addComponents(stripeBtn, cryptoBtn, cancelBtn);
 
                 await orderChannel.send({
-                    embeds: [checkoutEmbed],
-                    components: [checkoutRow]
+                    embeds: [choiceEmbed],
+                    components: [choiceRow]
                 });
 
-                // Edit ephemeral notice and auto-delete
                 await interaction.editReply({ 
                     content: `🛒 Your private order channel has been created: <#${orderChannel.id}>` 
                 });
@@ -386,10 +370,85 @@ botClient.on('interactionCreate', async interaction => {
                     await interaction.deleteReply().catch(() => {});
                 }, 6000);
 
-            } catch (stripeError) {
-                console.error('Checkout creation error:', stripeError);
-                await interaction.editReply({ content: 'Encountered an error generating your checkout. Please try again later.' });
+            } catch (err) {
+                console.error('Error creating order channel:', err);
+                await interaction.editReply({ content: 'Encountered an error opening your order channel.' });
             }
+        }
+
+        if (interaction.customId.startsWith('pay_stripe|')) {
+            await interaction.deferUpdate();
+            const [, productKey, productPrice, channelId] = interaction.customId.split('|');
+            const orderChannel = await interaction.guild.channels.fetch(channelId);
+
+            const stripeSession = await stripe.checkout.sessions.create({
+                payment_method_types: ['card'],
+                line_items: [{
+                    price_data: {
+                        currency: 'usd',
+                        product_data: { name: productKey.toUpperCase().replace('_', ' ') },
+                        unit_amount: Math.round(parseFloat(productPrice) * 100),
+                    },
+                    quantity: 1,
+                }],
+                mode: 'payment',
+                success_url: 'https://roblox.com',
+                cancel_url: 'https://roblox.com',
+                metadata: {
+                    discord_user_id: interaction.user.id,
+                    item_id: productKey,
+                    guild_id: interaction.guild.id,
+                    channel_id: orderChannel.id
+                }
+            });
+
+            const checkoutEmbed = new EmbedBuilder()
+                .setTitle('💳 Stripe Checkout')
+                .setDescription(`Click the button below to complete your card payment safely via Stripe.\n\n*Your code will be delivered here automatically once payment succeeds.*`)
+                .setColor(0x635BFF);
+
+            const payButton = new ButtonBuilder().setLabel('Open Stripe Checkout').setURL(stripeSession.url).setStyle(ButtonStyle.Link);
+            const backRow = new ActionRowBuilder().addComponents(payButton);
+
+            await orderChannel.send({ embeds: [checkoutEmbed], components: [backRow] });
+            await interaction.message.delete().catch(() => {});
+        }
+
+        if (interaction.customId.startsWith('pay_crypto|')) {
+            await interaction.deferUpdate();
+            const [, productKey, productPrice, channelId] = interaction.customId.split('|');
+            const orderChannel = await interaction.guild.channels.fetch(channelId);
+
+            const cryptoEmbed = new EmbedBuilder()
+                .setTitle('🪙 Cryptocurrency Payment')
+                .setDescription(`You selected to pay with crypto for **${productKey}**.\n\nPlease send **$${productPrice} USD** worth of crypto to one of the addresses below:`)
+                .setColor(0xF7931A)
+                .addFields(
+                    { name: '🔹 Ethereum (ETH)', value: `\`\`\`0x42d01fE1f89C6cDE28ef7a34Ef5A7B452eD6B271\`\`\``, inline: false },
+                    { name: '🟣 Litecoin (LTC)', value: `\`\`\`MWSeYJ3qgm3j5yYGGFimu5ebSzHA9oUvBy\`\`\``, inline: false },
+                    { name: '🟠 Bitcoin (BTC)', value: `\`\`\`34hRphphvMtvqiWPawAESR1bxkfvUoFNhh\`\`\``, inline: false },
+                    { name: '🟢 Solana (SOL)', value: `\`\`\`222P8wKAC2s2UcfNyANYre8yVKjU1c3C3MA7mYqK92ZB\`\`\``, inline: false }
+                )
+                .setFooter({ text: 'After sending your payment, click the button below to alert staff.' });
+
+            const confirmCryptoBtn = new ButtonBuilder()
+                .setCustomId('crypto_notify_admin')
+                .setLabel('I Have Paid (Notify Admin)')
+                .setStyle(ButtonStyle.Success)
+                .setEmoji('✅');
+
+            const cryptoRow = new ActionRowBuilder().addComponents(confirmCryptoBtn);
+
+            await orderChannel.send({ embeds: [cryptoEmbed], components: [cryptoRow] });
+            await interaction.message.delete().catch(() => {});
+        }
+
+        if (interaction.customId === 'crypto_notify_admin') {
+            const ADMIN_ROLE_ID = '1542306776622309437';
+            
+            await interaction.reply({ 
+                content: `🔔 <@&${ADMIN_ROLE_ID}>, <@${interaction.user.id}> has indicated they paid via crypto! Please verify the transaction hash and manually hand over their item code.` 
+            });
         }
     }
 });

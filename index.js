@@ -191,8 +191,6 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
     res.status(200).json({ received: true });
 });
 
-    return res.status(200).json({ received: true });
-});
 
 // --- DISCORD COMMAND DEFINITIONS ---
 const appCommands = [

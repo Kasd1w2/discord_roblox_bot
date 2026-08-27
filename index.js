@@ -23,7 +23,6 @@ const {
     PermissionFlagsBits
 } = require('discord.js');
 
-// Place right after const botClient = new Client({ ... });
 
 function updateBotStatus(text, temporaryMs = 15000) {
     if (!botClient || !botClient.user) return;
@@ -145,10 +144,15 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         const usdPricePaid = session.amount_total / 100;
 
         try {
+            // 1. Update status to show delivery is processing
+            updateBotStatus(`💳 Payment received! Auto-delivering ${targetItemId.toUpperCase()}...`);
+
             const itemRecord = await Inventory.findOne({ itemId: targetItemId });
             
             if (!itemRecord || itemRecord.codes.length === 0) {
                 console.error(`CRITICAL: User ${buyerDiscordId} paid for ${targetItemId} but stock is empty!`);
+                // 2. Set an error status if stock is missing
+                updateBotStatus(`⚠️ ERROR: Stock empty for ${targetItemId.toUpperCase()}!`);
                 return res.status(200).json({ received: true }); 
             }
 
@@ -183,6 +187,9 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
             console.error('Error handling checkout completion webhook:', dbErr);
         }
     }
+    
+    res.status(200).json({ received: true });
+});
 
     return res.status(200).json({ received: true });
 });

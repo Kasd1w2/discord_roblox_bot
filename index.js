@@ -211,7 +211,11 @@ const appCommands = [
         .setName('give-coupon')
         .setDescription('Give a discount coupon to a user manually (Admin)')
         .addUserOption(opt => opt.setName('user').setDescription('The user to receive the coupon').setRequired(true))
-        .addNumberOption(opt => opt.setName('discount').setDescription('Discount percentage (e.g., 10, 15, 50)').setRequired(true))
+        .addNumberOption(opt => opt.setName('discount').setDescription('Discount percentage (e.g., 10, 15, 50)').setRequired(true)),
+    new SlashCommandBuilder()
+        .setName('view-points')
+        .setDescription('View the points and coupons of a specific user (Admin)')
+        .addUserOption(opt => opt.setName('user').setDescription('The user to inspect').setRequired(true))
 ];
 
 botClient.once('clientReady', async () => {
@@ -246,9 +250,42 @@ botClient.on('interactionCreate', async interaction => {
     if (interaction.isChatInputCommand()) {
         const commandLabel = interaction.commandName;
 
-        if (['setup-store', 'restock', 'stock', 'remove-stock', 'deliver', 'close', 'coupon-store', 'give-coupon'].includes(commandLabel)) {
+        if (['setup-store', 'restock', 'stock', 'remove-stock', 'deliver', 'close', 'coupon-store', 'give-coupon', 'view-points'].includes(commandLabel)) {
             if (!interaction.member.roles.cache.has(ADMIN_ROLE_ID)) {
                 return interaction.reply({ content: '🛑 You do not have permission to use this command.', flags: 64 });
+            }
+        }
+
+        if (commandLabel === 'view-points') {
+            await interaction.deferReply({ flags: 64 });
+            const targetUser = interaction.options.getUser('user');
+
+            try {
+                const userLedger = await Ledger.findOne({ discordId: targetUser.id });
+                if (!userLedger) {
+                    return interaction.editReply({ content: `❌ <@${targetUser.id}> does not have any records or points on file.` });
+                }
+
+                const points = userLedger.points || 0;
+                const coupons = userLedger.coupons && userLedger.coupons.length > 0 
+                    ? userLedger.coupons.map(c => `${c}% Off`).join(', ') 
+                    : 'None';
+                const purchaseCount = userLedger.purchases ? userLedger.purchases.length : 0;
+
+                const profileEmbed = new EmbedBuilder()
+                    .setTitle(`📊 User Profile: ${targetUser.username}`)
+                    .setThumbnail(targetUser.displayAvatarURL())
+                    .setColor(0x5865F2)
+                    .addFields(
+                        { name: '⭐ Points Balance', value: `\`${points}\``, inline: true },
+                        { name: '🎟️ Unused Coupons', value: `\`${coupons}\``, inline: true },
+                        { name: '🛒 Total Purchases', value: `\`${purchaseCount}\``, inline: true }
+                    );
+
+                await interaction.editReply({ embeds: [profileEmbed] });
+            } catch (err) {
+                console.error('Database error in view-points:', err);
+                await interaction.editReply({ content: '❌ Failed to fetch user data from the database.' });
             }
         }
 

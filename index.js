@@ -196,7 +196,8 @@ new SlashCommandBuilder()
             .addChoices(
                 { name: 'Automated Code', value: 'Automated Code Delivery' },
                 { name: 'Automated Link', value: 'Automated Activation Link' },
-                { name: 'Manual Delivery', value: 'Manual Delivery' }
+                { name: 'Manual Delivery', value: 'Manual Delivery' },
+                { name : 'User:Password', value: 'User:Password Delivery' },
             ))
         .addStringOption(opt => opt.setName('catalog_url').setDescription('Roblox Catalog / Rolimons link (Optional)').setRequired(false)),
     new SlashCommandBuilder()
@@ -288,7 +289,7 @@ botClient.on('interactionCreate', async interaction => {
     if (interaction.isChatInputCommand()) {
         const commandLabel = interaction.commandName;
 
-        if (['setup-store', 'restock', 'stock', 'remove-stock', 'deliver', 'close', 'coupon-store', 'give-coupon', 'view-points'].includes(commandLabel)) {
+        if (['setup-store', 'restock', 'remove-stock', 'deliver', 'close', 'coupon-store', 'give-coupon'].includes(commandLabel)) {
             if (!interaction.member.roles.cache.has(ADMIN_ROLE_ID)) {
                 return interaction.reply({ content: '🛑 You do not have permission to use this command.', flags: 64 });
             }

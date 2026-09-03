@@ -289,14 +289,14 @@ botClient.on('interactionCreate', async interaction => {
     if (interaction.isChatInputCommand()) {
         const commandLabel = interaction.commandName;
 
-        if (['setup-store', 'restock', 'remove-stock', 'deliver', 'close', 'coupon-store', 'give-coupon'].includes(commandLabel)) {
+        if (['setup-store', 'restock', 'remove-stock', 'deliver', 'close', 'coupon-store', 'give-coupon', 'view-points'].includes(commandLabel)) {
             if (!interaction.member.roles.cache.has(ADMIN_ROLE_ID)) {
                 return interaction.reply({ content: '🛑 You do not have permission to use this command.', flags: 64 });
             }
         }
 
         if (commandLabel === 'view-points') {
-            await interaction.deferReply({ flags: 64 });
+            await interaction.deferReply();
             const targetUser = interaction.options.getUser('user');
 
             try {
@@ -496,7 +496,7 @@ const buyActionBtn = new ButtonBuilder()
             }
 
             const stockList = allInventory.map(item => `• **${item.itemId}**: ${item.codes.length} code(s) remaining`).join('\n');
-            await interaction.reply({ content: `📦 **Current Inventory Stock:**\n${stockList}`, flags: 64 });
+            await interaction.reply({ content: `📦 **Current Inventory Stock:**\n${stockList}`});
         }
 
         if (commandLabel === 'remove-stock') {

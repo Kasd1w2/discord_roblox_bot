@@ -213,7 +213,7 @@ new SlashCommandBuilder()
         .addStringOption(opt => opt.setName('codes').setDescription('Comma-separated codes (e.g. CODE1,CODE2)').setRequired(true)),
     new SlashCommandBuilder()
         .setName('stock')
-        .setDescription('Check available inventory stock levels (Admin)'),
+        .setDescription('Check available inventory stock levels'),
     new SlashCommandBuilder()
         .setName('remove-stock')
         .setDescription('Remove specific codes from an item (Admin)')

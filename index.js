@@ -492,7 +492,7 @@ const buyActionBtn = new ButtonBuilder()
             updateBotStatus(`📊 Checking inventory stock`);
             const allInventory = await Inventory.find({});
             if (!allInventory || allInventory.length === 0) {
-                return interaction.reply({ content: 'No inventory records found in the database.', flags: 64 });
+                return interaction.reply({ content: 'No inventory records found in the database.'});
             }
 
             const stockList = allInventory.map(item => `• **${item.itemId}**: ${item.codes.length} code(s) remaining`).join('\n');

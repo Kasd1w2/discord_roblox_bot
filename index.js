@@ -243,7 +243,8 @@ new SlashCommandBuilder()
     new SlashCommandBuilder()
         .setName('view-points')
         .setDescription('View the points and coupons of a specific user (Admin)')
-        .addUserOption(opt => opt.setName('user').setDescription('The user to inspect').setRequired(true))
+        .addUserOption(opt => opt.setName('user').setDescription('The user to inspect').setRequired(true)),
+
 ];
 
 botClient.once('clientReady', async () => {

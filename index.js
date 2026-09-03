@@ -740,15 +740,28 @@ const buyActionBtn = new ButtonBuilder()
         }
 
         // 4. User clicked No to coupon
-        if (interaction.customId.startsWith('use_coupon_no|')) {
-            const [, productKey, productPrice] = interaction.customId.split('|');
-            
-            const polishedEmbed = new EmbedBuilder()
-                // ... (your existing embed code) ...
-                .setColor(0x5865F2);
+        // 4. User clicked No to coupon
+if (interaction.customId.startsWith('use_coupon_no|')) {
+    const [, productKey, productPrice] = interaction.customId.split('|');
+    
+    // Restore the actual text and title for the checkout embed
+    const polishedEmbed = new EmbedBuilder()
+        .setTitle('🛍️ Secure Checkout Portal')
+        .setDescription(`Welcome <@${interaction.user.id}>! You are initializing an order for **${productKey.toUpperCase()}**.\n\n` +
+                        `• **Total Price:** \`$${productPrice} USD\`\n` +
+                        `• **Status:** \`Awaiting Payment Selection\`\n\n` +
+                        `Please make your selection from the dropdown menu below.`)
+        .setColor(0x5865F2);
 
-            await interaction.update({ embeds: [polishedEmbed], components: [generatePaymentMenu(productKey, productPrice, interaction.channel.id), getCancelButtonRow()] });
-        }
+    // interaction.channelId is slightly safer than interaction.channel.id in v14 just in case the channel isn't fully cached!
+    await interaction.update({ 
+        embeds: [polishedEmbed], 
+        components: [
+            generatePaymentMenu(productKey, productPrice, interaction.channelId), 
+            getCancelButtonRow()
+        ] 
+    });
+}
 
         // ---> PASTE THE NEW CODE RIGHT HERE <---
         // 7. Open the Transaction Modal
@@ -823,8 +836,8 @@ const buyActionBtn = new ButtonBuilder()
                     quantity: 1,
                 }],
                 mode: 'payment',
-                success_url: 'https://roblox.com',
-                cancel_url: 'https://roblox.com',
+                success_url: 'https://roblox.com/redeem',
+                cancel_url: 'https://roblox.com/redeem',
                 metadata: {
                     discord_user_id: interaction.user.id,
                     item_id: productKey,

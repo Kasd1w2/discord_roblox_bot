@@ -375,7 +375,8 @@ botClient.on('interactionCreate', async interaction => {
                     )
                     .setColor(0x2B2D31);
 
-                const tierMenu = new StringSelectMenuBuilder()
+                // Build Tier Dropdown Menu
+const tierMenu = new StringSelectMenuBuilder()
     .setCustomId(`tier_select|${encodeURIComponent(customTitle)}`)
     .setPlaceholder('Select a tier...')
     .addOptions([
@@ -385,25 +386,25 @@ botClient.on('interactionCreate', async interaction => {
     ]);
 
 const targetChannel = await interaction.guild.channels.fetch(selectedChannelOption.id);
-await targetChannel.send({ embeds: [catalogEmbed], components: [new ActionRowBuilder().addComponents(tierMenu)] });
+await targetChannel.send({ 
+    embeds: [catalogEmbed], 
+    components: [new ActionRowBuilder().addComponents(tierMenu)] 
+});
+
 return interaction.reply({ content: '✅ Tier catalog deployed successfully!', flags: 64 });
 
-                const targetChannel = await interaction.guild.channels.fetch(selectedChannelOption.id);
-                await targetChannel.send({ embeds: [catalogEmbed], components: [new ActionRowBuilder().addComponents(categoryMenu)] });
-                return interaction.reply({ content: '✅ Username catalog deployed successfully!', flags: 64 });
-            } else {
-                // Handle Item Store listing creation
-                const productTitle = interaction.options.getString('title');
-                const productPrice = interaction.options.getNumber('price');
-                const productKey = interaction.options.getString('item_id');
-                const robloxLink = interaction.options.getString('catalog_url');
-                const thumbnailPic = interaction.options.getString('image_url');
-                const deliveryMethod = interaction.options.getString('delivery_method');
+} else {
+    // Handle Item Store listing creation
+    const productTitle = interaction.options.getString('title');
+    const productPrice = interaction.options.getNumber('price');
+    const productKey = interaction.options.getString('item_id');
+    const robloxLink = interaction.options.getString('catalog_url');
+    const thumbnailPic = interaction.options.getString('image_url');
+    const deliveryMethod = interaction.options.getString('delivery_method');
 
-                if (!productTitle || productPrice === null || !productKey || !deliveryMethod) {
-                    return interaction.reply({ content: '❌ Missing required fields for a Single Item forum post.', flags: 64 });
-                }
-
+    if (!productTitle || productPrice === null || !productKey || !deliveryMethod) {
+        return interaction.reply({ content: '❌ Missing required fields for a Single Item forum post.', flags: 64 });
+    }
                 updateBotStatus(`🏷️ Creating store listing: ${productTitle}`);
                 const targetForum = await interaction.guild.channels.fetch(selectedChannelOption.id);
 

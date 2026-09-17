@@ -383,10 +383,10 @@ botClient.on('interactionCreate', async interaction => {
         }
 
        if (commandLabel === 'setup-store') {
-            const storeType = interaction.options.getString('type');
+            const storeType = interaction.options.getString('store_type');
             const selectedChannelOption = interaction.options.getChannel('channel');
 
-            if (storeType === 'catalog') {
+            if (storeType === 'account' || storeType === 'catalog') {
                 updateBotStatus(`🏷️ Deploying User Catalog`);
                 
                 const catalogEmbed = new EmbedBuilder()
@@ -459,7 +459,6 @@ botClient.on('interactionCreate', async interaction => {
 
             await interaction.reply({ content: `✅ Successfully created forum post for **${productTitle}**!`, flags: 64 });
         }
-
         if (commandLabel === 'my-codes') {
             const userLedger = await Ledger.findOne({ discordId: interaction.user.id });
             if (!userLedger) return interaction.reply({ content: "You don't have any purchase records on file.", flags: 64 });

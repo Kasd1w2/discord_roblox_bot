@@ -52,8 +52,9 @@ module.exports = [
         .setName('deliver')
         .setDescription('Pull code from database and send code embed with user ping (Admin)')
         .addUserOption(opt => opt.setName('buyer').setDescription('Select the user to ping').setRequired(true))
-        .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID key to pull code from').setRequired(true))
-        .addNumberOption(opt => opt.setName('price').setDescription('Order price in USD to award points (Optional)').setRequired(true)),
+        .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID key to pull code from (e.g., triple)').setRequired(true))
+        .addNumberOption(opt => opt.setName('price').setDescription('Order price in USD to award points').setRequired(true))
+        .addStringOption(opt => opt.setName('specific_account').setDescription('Specific username to deliver (Optional)').setRequired(false)),
 
     new SlashCommandBuilder()
         .setName('close')

@@ -355,8 +355,9 @@ botClient.on('interactionCreate', async interaction => {
         }
 
         if (commandLabel === 'setup-store') {
-            // 1. Immediately acknowledge Discord to prevent 3-second timeout
-    await interaction.deferReply({ flags: 64 });
+            // 1. Instantly defer to prevent the 3-second timeout
+            await interaction.deferReply({ flags: 64 });
+            
             const storeType = interaction.options.getString('store_type');
             const selectedChannelOption = interaction.options.getChannel('channel');
             const customTitle = interaction.options.getString('title') || 'RO8LOX User Stock';
@@ -377,24 +378,71 @@ botClient.on('interactionCreate', async interaction => {
                     )
                     .setColor(0x2B2D31);
 
-                // Build Tier Dropdown Menu
-const tierMenu = new StringSelectMenuBuilder()
-    .setCustomId(`tier_select|${encodeURIComponent(customTitle)}`)
-    .setPlaceholder('Select a tier...')
-    .addOptions([
-        { label: '🔥 High Tier', value: 'high_tier', description: '2 Letters, 3 Digits, Real Words' },
-        { label: '⚡ Mid Tier', value: 'mid_tier', description: '3 Letters, 4 Digits, Clean Compounds' },
-        { label: '🌱 Low Tier', value: 'low_tier', description: 'Triples, 4L, Edgy, Finance, Leetspeak, Other' }
-    ]);
+                const tierMenu = new StringSelectMenuBuilder()
+                    .setCustomId(`tier_select|${encodeURIComponent(customTitle)}`)
+                    .setPlaceholder('Select a tier...')
+                    .addOptions([
+                        { label: '🔥 High Tier', value: 'high_tier', description: '2 Letters, 3 Digits, Real Words' },
+                        { label: '⚡ Mid Tier', value: 'mid_tier', description: '3 Letters, 4 Digits, Clean Compounds' },
+                        { label: '🌱 Low Tier', value: 'low_tier', description: 'Triples, 4L, Edgy, Finance, Leetspeak, Other' }
+                    ]);
 
-const targetChannel = await interaction.guild.channels.fetch(selectedChannelOption.id);
-await targetChannel.send({ 
-    embeds: [catalogEmbed], 
-    components: [new ActionRowBuilder().addComponents(tierMenu)] 
-});
+                const targetChannel = await interaction.guild.channels.fetch(selectedChannelOption.id);
+                await targetChannel.send({ 
+                    embeds: [catalogEmbed], 
+                    components: [new ActionRowBuilder().addComponents(tierMenu)] 
+                });
 
-return interaction.reply({ content: '✅ Tier catalog deployed successfully!', flags: 64 });
+                // 2. Use editReply instead of reply since we deferred
+                await interaction.editReply({ content: '✅ Tier catalog deployed successfully!' });
+                
+            } else {
+                const productTitle = interaction.options.getString('title');
+                const productPrice = interaction.options.getNumber('price');
+                const productKey = interaction.options.getString('item_id');
+                const robloxLink = interaction.options.getString('catalog_url');
+                const thumbnailPic = interaction.options.getString('image_url');
+                const deliveryMethod = interaction.options.getString('delivery_method');
 
+                if (!productTitle || productPrice === null || !productKey || !deliveryMethod) {
+                    return interaction.editReply({ content: '❌ Missing required fields for a Single Item forum post.' });
+                }
+                
+                updateBotStatus(`🏷️ Creating store listing: ${productTitle}`);
+                const targetForum = await interaction.guild.channels.fetch(selectedChannelOption.id);
+
+                const embedFields = [
+                    { name: 'Price', value: `$${productPrice} USD`, inline: true },
+                    { name: 'Delivery', value: deliveryMethod, inline: true }, 
+                    { name: '\u200B', value: '\u200B', inline: true }
+                ];
+
+                if (robloxLink) embedFields.push({ name: 'Rolimons Link', value: `[View item](${robloxLink})`, inline: false });
+
+                const listingEmbed = new EmbedBuilder()
+                    .setTitle(`${productTitle}`)
+                    .setDescription(`Click on the button below to purchase!`)
+                    .setColor(0x2B2D31)
+                    .addFields(embedFields);
+
+                if (thumbnailPic) {
+                    listingEmbed.setImage(thumbnailPic);
+                }
+
+                const buyActionBtn = new ButtonBuilder()
+                    .setCustomId(`purchase_action|${productKey}|${productPrice}`)
+                    .setLabel(`Purchase ${productTitle}`.substring(0, 80))
+                    .setStyle(ButtonStyle.Primary);
+
+                await targetForum.threads.create({
+                    name: productTitle,
+                    message: { embeds: [listingEmbed], components: [new ActionRowBuilder().addComponents(buyActionBtn)] }
+                });
+
+                // 3. Use editReply instead of reply since we deferred
+                await interaction.editReply({ content: `✅ Successfully created forum post for **${productTitle}**!` });
+            }
+        }
 } else {
     // Handle Item Store listing creation
     const productTitle = interaction.options.getString('title');
@@ -530,6 +578,7 @@ return interaction.reply({ content: '✅ Tier catalog deployed successfully!', f
             const targetUser = interaction.options.getUser('buyer');
             const itemId = interaction.options.getString('item_id');
             const itemPrice = interaction.options.getNumber('price') || 0;
+            const specificAccount = interaction.options.getString('specific_account');
 
             if (!interaction.channel.name.startsWith('trade-')) return interaction.reply({ content: '🛑 Must be inside a trade channel.', flags: 64 });
 
@@ -537,7 +586,21 @@ return interaction.reply({ content: '✅ Tier catalog deployed successfully!', f
                 const itemRecord = await Inventory.findOne({ itemId });
                 if (!itemRecord || itemRecord.codes.length === 0) return interaction.reply({ content: `❌ Stock empty for \`${itemId}\`!`, flags: 64 });
 
-                const deliveredCode = itemRecord.codes.shift();
+                let deliveredCode;
+                
+                // If the admin provided a specific account name, search the array for it
+                if (specificAccount) {
+                    const codeIndex = itemRecord.codes.findIndex(c => c.toLowerCase().includes(specificAccount.toLowerCase()));
+                    if (codeIndex === -1) {
+                        return interaction.reply({ content: `❌ Could not find account matching \`${specificAccount}\` in category \`${itemId}\`.`, flags: 64 });
+                    }
+                    // Remove that exact account from the database list
+                    deliveredCode = itemRecord.codes.splice(codeIndex, 1)[0];
+                } else {
+                    // If no specific account was provided, just pull the first one (for automated item codes)
+                    deliveredCode = itemRecord.codes.shift();
+                }
+
                 await itemRecord.save();
 
                 let userLedger = await Ledger.findOne({ discordId: targetUser.id });

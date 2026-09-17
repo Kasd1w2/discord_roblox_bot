@@ -96,30 +96,37 @@ async function handleInteraction(interaction, botClient) {
             const selectedChannelOption = interaction.options.getChannel('channel');
 
             if (storeType === 'account' || storeType === 'catalog') {
-                updateBotStatus(botClient, `🏷️ Deploying User Catalog`);
-                
-                const catalogEmbed = new EmbedBuilder()
-                    .setTitle('💎 R0BLOX - Username Stock')
-                    .setDescription(`All accs are either owned by us, or within a VERY SMALL group of users we proxy for. All these users have been vetted to ensure acc safety.\n\n` +
-                                    `🛡️ Every acc is new to com, unverified, and sniped by us (unless stated otherwise).\n\n` +
-                                    `Users are sorted by price in USD. Select your budget within the dropdown to browse.\n\n` +
-                                    `**Payment Methods:** 🪙 Crypto, ✨ Clean Limiteds\n` +
-                                    `*(Extra fees apply for PayPal, CashApp, Apple Pay, Venmo)*`)
-                    .setColor(0x2B2D31);
+    updateBotStatus(botClient, `🏷️ Deploying User Catalog`);
+    
+    const catalogEmbed = new EmbedBuilder()
+        .setTitle('💎 R0BLOX - Username Stock')
+        .setDescription(
+            `👑 We DO NOT proxy the same accs seen in the Com. A large majority of accs are directly from the original owners. Largely obtained through private methods which only we know.\n\n` +
+            `🛡️ Every acc is new to com, unverified, and sniped by us (unless stated otherwise). All accs are guaranteed to be safe.\n` +
+            `All acc details can be provided upon enquiry.\n\n` +
+            `💲 Users are sorted by price in USD, select your budget within the dropdown to see users. All BINs are negotiable.\n\n` +
+            `Payment Methods accepted: 🪙 Crypto, ✨ Clean Limiteds\n\n` +
+            `For an extra +% we can also take: 🅿️ Paypal, 💲 CashApp,  Apple Pay, ♈ Venmo, ℤ Zelle, 🏦 Bank Transfer and 🟧 Interac.\n\n` +
+            `Select an option below to purchase then make a ticket.`
+        )
+        .setColor(0x2B2D31);
 
-                const tierMenu = new StringSelectMenuBuilder()
-                    .setCustomId('user_tier_select')
-                    .setPlaceholder('Select a Budget Tier...')
-                    .addOptions([
-                        { label: 'High Tier (1000+)', description: 'View high tier accounts', value: 'high_tier', emoji: '💎' },
-                        { label: 'Mid Tier (200-1000)', description: 'View mid tier accounts', value: 'mid_tier', emoji: '⭐' },
-                        { label: 'Low Tier (0-200)', description: 'View low tier accounts', value: 'low_tier', emoji: '💵' }
-                    ]);
+    const tierMenu = new StringSelectMenuBuilder()
+        .setCustomId('user_tier_select')
+        .setPlaceholder('Select a subcategory')
+        .addOptions([
+            { label: 'Triple Numbers', description: 'View Triple Numbers accounts', value: 'cat_triple_numbers' },
+            { label: '4 Letters', description: 'View 4 Letters accounts', value: 'cat_4_letters' },
+            { label: 'Edgy Compounds', description: 'View Edgy Compounds accounts', value: 'cat_edgy_compounds' },
+            { label: 'Finance Compounds', description: 'View Finance Compounds accounts', value: 'cat_finance_compounds' },
+            { label: 'Leetspeak', description: 'View Leetspeak accounts', value: 'cat_leetspeak' },
+            { label: 'Other', description: 'View Other accounts', value: 'cat_other' }
+        ]);
 
-                const targetChannel = await interaction.guild.channels.fetch(selectedChannelOption.id);
-                await targetChannel.send({ embeds: [catalogEmbed], components: [new ActionRowBuilder().addComponents(tierMenu)] });
-                return interaction.reply({ content: '✅ Username catalog deployed successfully!', flags: 64 });
-            }
+    const targetChannel = await interaction.guild.channels.fetch(selectedChannelOption.id);
+    await targetChannel.send({ embeds: [catalogEmbed], components: [new ActionRowBuilder().addComponents(tierMenu)] });
+    return interaction.reply({ content: '✅ Username catalog deployed successfully!', flags: 64 });
+}
 
             // Single item forum post logic
             const productTitle = interaction.options.getString('title');

@@ -566,7 +566,7 @@ botClient.on('interactionCreate', async interaction => {
                 await userLedger.save();
 
                 deliveredCode = deliveredCode.replace(/:.*$/, ''); // Remove any price info from the code for privacy
-                
+
                 const deliveryEmbed = new EmbedBuilder()
                     .setTitle('🎁 Order Delivery')
                     .setDescription(`Code for **${itemId.toUpperCase()}**:\n\`\`\`${deliveredCode}\`\`\``)
@@ -601,11 +601,12 @@ botClient.on('interactionCreate', async interaction => {
 
                 const logChannel = await interaction.guild.channels.fetch('1542337221791711324').catch(() => null);
                 if (logChannel) {
+                    const itemsold = channel.name.split('-')[1] || 'Unknown Item';
                     const receiptEmbed = new EmbedBuilder()
                         .setTitle('🧾 New Successful Sale')
                         .setColor(0x00FF00)
                         .addFields(
-                            { name: '📦 Item Sold', value: `\`${channel.name}\``, inline: true },
+                            { name: '📦 Item Sold', value: `\`${itemsold}\``, inline: true },
                             { name: '💳 Payment Method', value: `\`${method}\``, inline: true }
                         )
                         .setTimestamp();

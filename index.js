@@ -786,7 +786,7 @@ if (customId.startsWith('tier_select')) {
         // Send ephemeral subcategory dropdown
         const subcatMenu = new StringSelectMenuBuilder()
             .setCustomId(`subcat_select|${encodedTitle}`)
-            .setPlaceholder(`Select a subcategory under ${tierData.label}...`)
+            .setPlaceholder(`Select a subcategory...`)
             .addOptions(tierData.subcategories);
 
         const subcatEmbed = new EmbedBuilder()

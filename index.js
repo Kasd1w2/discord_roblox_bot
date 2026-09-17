@@ -21,7 +21,7 @@ const {
     PermissionFlagsBits
 } = require('discord.js');
 
-// Add helper near top of index.js
+// Category mapping helper
 const CATEGORY_NAMES = {
     'id': 'Triple Numbers',
     '4l': '4 Letters',
@@ -31,6 +31,7 @@ const CATEGORY_NAMES = {
     'other': 'Other'
 };
 
+// Account line parser (omits passwords from displays)
 function parseAccountEntry(codeString) {
     let raw = codeString.trim();
     let username = raw;
@@ -319,90 +320,87 @@ botClient.on('interactionCreate', async interaction => {
         }
 
         if (commandLabel === 'setup-store') {
-    const storeType = interaction.options.getString('store_type');
-    const selectedChannelOption = interaction.options.getChannel('channel');
-    const customTitle = interaction.options.getString('title') || 'RO8LOX User Stock';
+            const storeType = interaction.options.getString('store_type');
+            const selectedChannelOption = interaction.options.getChannel('channel');
+            const customTitle = interaction.options.getString('title') || 'RO8LOX User Stock';
 
-    if (storeType === 'account') {
-        updateBotStatus(`🏷️ Deploying User Catalog`);
+            if (storeType === 'account') {
+                updateBotStatus(`🏷️ Deploying User Catalog`);
 
-        const catalogEmbed = new EmbedBuilder()
-            .setTitle(customTitle)
-            .setDescription(
-                `We DO NOT proxy the same accs seen in the Com. A large majority of accs are directly from the original owners. Largely obtained through private methods which only we know.\n\n` +
-                `🛡️ Every acc is new to com, unverified, and sniped by us (unless stated otherwise). All accs are guaranteed to be safe.\n` +
-                `All acc details can be provided upon enquiry.\n\n` +
-                `↕️ Users are sorted by price in USD, select your budget within the dropdown to see users. All BINs are negotiable.\n\n` +
-                `Payment Methods accepted: 🪙 Crypto, ✨ Clean Limiteds\n\n` +
-                `For an extra +% we can also take: 🅿️ Paypal, 💲 CashApp, 🍎 Apple Pay, ♈ Venmo, 💤 Zelle, 🏦 Bank Transfer and 🍁 Interac.\n\n` +
-                `Select an option below to purchase then make a ticket.`
-            )
-            .setColor(0x2B2D31);
+                const catalogEmbed = new EmbedBuilder()
+                    .setTitle(customTitle)
+                    .setDescription(
+                        `We DO NOT proxy the same accs seen in the Com. A large majority of accs are directly from the original owners. Largely obtained through private methods which only we know.\n\n` +
+                        `🛡️ Every acc is new to com, unverified, and sniped by us (unless stated otherwise). All accs are guaranteed to be safe.\n` +
+                        `All acc details can be provided upon enquiry.\n\n` +
+                        `↕️ Users are sorted by price in USD, select your budget within the dropdown to see users. All BINs are negotiable.\n\n` +
+                        `Payment Methods accepted: 🪙 Crypto, ✨ Clean Limiteds\n\n` +
+                        `For an extra +% we can also take: 🅿️ Paypal, 💲 CashApp, 🍎 Apple Pay, ♈ Venmo, 💤 Zelle, 🏦 Bank Transfer and 🍁 Interac.\n\n` +
+                        `Select an option below to purchase then make a ticket.`
+                    )
+                    .setColor(0x2B2D31);
 
-        const categoryMenu = new StringSelectMenuBuilder()
-            .setCustomId(`account_category_select|${encodeURIComponent(customTitle)}`)
-            .setPlaceholder('Select a category...')
-            .addOptions([
-                { label: 'Triple Numbers', value: 'id' },
-                { label: '4 Letters', value: '4l' },
-                { label: 'Edgy Compounds', value: 'edgy' },
-                { label: 'Finance Compounds', value: 'finance' },
-                { label: 'Leetspeak', value: 'leetspeak' },
-                { label: 'Other', value: 'other' }
-            ]);
+                const categoryMenu = new StringSelectMenuBuilder()
+                    .setCustomId(`account_category_select|${encodeURIComponent(customTitle)}`)
+                    .setPlaceholder('Select a category...')
+                    .addOptions([
+                        { label: 'Triple Numbers', value: 'id' },
+                        { label: '4 Letters', value: '4l' },
+                        { label: 'Edgy Compounds', value: 'edgy' },
+                        { label: 'Finance Compounds', value: 'finance' },
+                        { label: 'Leetspeak', value: 'leetspeak' },
+                        { label: 'Other', value: 'other' }
+                    ]);
 
-        const targetChannel = await interaction.guild.channels.fetch(selectedChannelOption.id);
-        await targetChannel.send({ embeds: [catalogEmbed], components: [new ActionRowBuilder().addComponents(categoryMenu)] });
-        return interaction.reply({ content: '✅ Username catalog deployed successfully!', flags: 64 });
-    }
-}
+                const targetChannel = await interaction.guild.channels.fetch(selectedChannelOption.id);
+                await targetChannel.send({ embeds: [catalogEmbed], components: [new ActionRowBuilder().addComponents(categoryMenu)] });
+                return interaction.reply({ content: '✅ Username catalog deployed successfully!', flags: 64 });
+            } else {
+                // Handle Item Store listing creation
+                const productTitle = interaction.options.getString('title');
+                const productPrice = interaction.options.getNumber('price');
+                const productKey = interaction.options.getString('item_id');
+                const robloxLink = interaction.options.getString('catalog_url');
+                const thumbnailPic = interaction.options.getString('image_url');
+                const deliveryMethod = interaction.options.getString('delivery_method');
 
-            // index.js (inside setup-store logic)
-const productTitle = interaction.options.getString('title');
-const productPrice = interaction.options.getNumber('price');
-const productKey = interaction.options.getString('item_id');
-const robloxLink = interaction.options.getString('catalog_url');
-const thumbnailPic = interaction.options.getString('image_url');
-const deliveryMethod = interaction.options.getString('delivery_method');
+                if (!productTitle || productPrice === null || !productKey || !deliveryMethod) {
+                    return interaction.reply({ content: '❌ Missing required fields for a Single Item forum post.', flags: 64 });
+                }
 
-// Require core details, but allow thumbnailPic to be optional
-if (!productTitle || productPrice === null || !productKey || !deliveryMethod) {
-    return interaction.reply({ content: '❌ Missing required fields for a Single Item forum post.', flags: 64 });
-}
+                updateBotStatus(`🏷️ Creating store listing: ${productTitle}`);
+                const targetForum = await interaction.guild.channels.fetch(selectedChannelOption.id);
 
-updateBotStatus(`🏷️ Creating store listing: ${productTitle}`);
-const targetForum = await interaction.guild.channels.fetch(selectedChannelOption.id);
+                const embedFields = [
+                    { name: 'Price', value: `$${productPrice} USD`, inline: true },
+                    { name: 'Delivery', value: deliveryMethod, inline: true }, 
+                    { name: '\u200B', value: '\u200B', inline: true }
+                ];
 
-const embedFields = [
-    { name: 'Price', value: `$${productPrice} USD`, inline: true },
-    { name: 'Delivery', value: deliveryMethod, inline: true }, 
-    { name: '\u200B', value: '\u200B', inline: true }
-];
+                if (robloxLink) embedFields.push({ name: 'Rolimons Link', value: `[View item](${robloxLink})`, inline: false });
 
-if (robloxLink) embedFields.push({ name: 'Rolimons Link', value: `[View item](${robloxLink})`, inline: false });
+                const listingEmbed = new EmbedBuilder()
+                    .setTitle(`${productTitle}`)
+                    .setDescription(`Click on the button below to purchase!`)
+                    .setColor(0x2B2D31)
+                    .addFields(embedFields);
 
-const listingEmbed = new EmbedBuilder()
-    .setTitle(`${productTitle}`)
-    .setDescription(`Click on the button below to purchase!`)
-    .setColor(0x2B2D31)
-    .addFields(embedFields);
+                if (thumbnailPic) {
+                    listingEmbed.setImage(thumbnailPic);
+                }
 
-// Only attach image if provided
-if (thumbnailPic) {
-    listingEmbed.setImage(thumbnailPic);
-}
+                const buyActionBtn = new ButtonBuilder()
+                    .setCustomId(`purchase_action|${productKey}|${productPrice}`)
+                    .setLabel(`Purchase ${productTitle}`.substring(0, 80))
+                    .setStyle(ButtonStyle.Primary);
 
-            const buyActionBtn = new ButtonBuilder()
-                .setCustomId(`purchase_action|${productKey}|${productPrice}`)
-                .setLabel(`Purchase ${productTitle}`.substring(0, 80))
-                .setStyle(ButtonStyle.Primary);
+                await targetForum.threads.create({
+                    name: productTitle,
+                    message: { embeds: [listingEmbed], components: [new ActionRowBuilder().addComponents(buyActionBtn)] }
+                });
 
-            await targetForum.threads.create({
-                name: productTitle,
-                message: { embeds: [listingEmbed], components: [new ActionRowBuilder().addComponents(buyActionBtn)] }
-            });
-
-            await interaction.reply({ content: `✅ Successfully created forum post for **${productTitle}**!`, flags: 64 });
+                await interaction.reply({ content: `✅ Successfully created forum post for **${productTitle}**!`, flags: 64 });
+            }
         }
 
         if (commandLabel === 'my-codes') {
@@ -442,7 +440,6 @@ if (thumbnailPic) {
             
             const rawInput = interaction.options.getString('codes');
 
-            // Splitting by newlines, commas, or spaces to handle multiline user:pass blocks cleanly
             const newCodes = rawInput
                 .split(/[\r\n,]+|\s+/)
                 .map(c => c.trim())
@@ -566,60 +563,57 @@ if (thumbnailPic) {
     if (interaction.isButton()) {
         const customId = interaction.customId;
 
-        // Buy Store Listing Action
-        // index.js (inside button handler)
-if (customId.startsWith('purchase_action|')) {
-    // Defer immediately to prevent "didn't respond in time"
-    await interaction.deferReply({ flags: 64 }).catch(() => {});
+        if (customId.startsWith('purchase_action|')) {
+            await interaction.deferReply({ flags: 64 }).catch(() => {});
 
-    const [, productKey, productPrice] = customId.split('|');
-    const sanitizedUser = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user';
+            const [, productKey, productPrice] = customId.split('|');
+            const sanitizedUser = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user';
 
-    try {
-        const tradeChannel = await interaction.guild.channels.create({
-            name: `trade-${productKey.toLowerCase()}-${sanitizedUser}`.substring(0, 100),
-            type: ChannelType.GuildText,
-            permissionOverwrites: [
-                { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-                { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-                { id: botClient.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-                { id: ADMIN_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
-            ]
-        });
+            try {
+                const tradeChannel = await interaction.guild.channels.create({
+                    name: `trade-${productKey.toLowerCase()}-${sanitizedUser}`.substring(0, 100),
+                    type: ChannelType.GuildText,
+                    permissionOverwrites: [
+                        { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+                        { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                        { id: botClient.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                        { id: ADMIN_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
+                    ]
+                });
 
-        let userLedger = await Ledger.findOne({ discordId: interaction.user.id });
+                let userLedger = await Ledger.findOne({ discordId: interaction.user.id });
 
-        if (userLedger && userLedger.coupons && userLedger.coupons.length > 0) {
-            const couponEmbed = new EmbedBuilder()
-                .setTitle('🎟️ Discount Coupon Available!')
-                .setDescription(`You have available coupons! Would you like to apply a coupon to this purchase?`)
-                .setColor(0xFFD700);
+                if (userLedger && userLedger.coupons && userLedger.coupons.length > 0) {
+                    const couponEmbed = new EmbedBuilder()
+                        .setTitle('🎟️ Discount Coupon Available!')
+                        .setDescription(`You have available coupons! Would you like to apply a coupon to this purchase?`)
+                        .setColor(0xFFD700);
 
-            const couponRow = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`use_coupon_yes|${productKey}|${productPrice}`).setLabel('Use Coupon').setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId(`use_coupon_no|${productKey}|${productPrice}`).setLabel('Skip Coupon').setStyle(ButtonStyle.Secondary)
-            );
+                    const couponRow = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId(`use_coupon_yes|${productKey}|${productPrice}`).setLabel('Use Coupon').setStyle(ButtonStyle.Success),
+                        new ButtonBuilder().setCustomId(`use_coupon_no|${productKey}|${productPrice}`).setLabel('Skip Coupon').setStyle(ButtonStyle.Secondary)
+                    );
 
-            await tradeChannel.send({ content: `<@${interaction.user.id}>`, embeds: [couponEmbed], components: [couponRow] });
-        } else {
-            const checkoutEmbed = new EmbedBuilder()
-                .setTitle('🛍️ Secure Checkout Portal')
-                .setDescription(`Order for **${productKey.toUpperCase()}**.\nTotal Price: \`$${productPrice} USD\``)
-                .setColor(0x5865F2);
+                    await tradeChannel.send({ content: `<@${interaction.user.id}>`, embeds: [couponEmbed], components: [couponRow] });
+                } else {
+                    const checkoutEmbed = new EmbedBuilder()
+                        .setTitle('🛍️ Secure Checkout Portal')
+                        .setDescription(`Order for **${productKey.toUpperCase()}**.\nTotal Price: \`$${productPrice} USD\``)
+                        .setColor(0x5865F2);
 
-            await tradeChannel.send({
-                content: `<@${interaction.user.id}>`,
-                embeds: [checkoutEmbed],
-                components: [generatePaymentMenu(productKey, productPrice, tradeChannel.id), getCancelButtonRow()]
-            });
+                    await tradeChannel.send({
+                        content: `<@${interaction.user.id}>`,
+                        embeds: [checkoutEmbed],
+                        components: [generatePaymentMenu(productKey, productPrice, tradeChannel.id), getCancelButtonRow()]
+                    });
+                }
+
+                await interaction.editReply({ content: `✅ Order channel created: <#${tradeChannel.id}>` });
+            } catch (err) {
+                console.error('Channel creation error:', err);
+                await interaction.editReply({ content: '❌ Failed to create trade channel. Ensure the bot has "Manage Channels" permissions.' });
+            }
         }
-
-        await interaction.editReply({ content: `✅ Order channel created: <#${tradeChannel.id}>` });
-    } catch (err) {
-        console.error('Channel creation error:', err);
-        await interaction.editReply({ content: '❌ Failed to create trade channel. Ensure the bot has "Manage Channels" permissions.' });
-    }
-}
 
         if (customId.startsWith('use_coupon_yes|')) {
             const [, productKey, productPrice] = customId.split('|');
@@ -724,102 +718,96 @@ if (customId.startsWith('purchase_action|')) {
 
             await interaction.editReply({ content: `🎉 **Redeemed!** Spent **${cost} points** for a **${discountPct}% Off Coupon**.` });
         }
-        // Add this inside if (interaction.isStringSelectMenu()) { ... }
 
+        if (customId.startsWith('account_category_select')) {
+            await interaction.deferReply({ flags: 64 });
 
-    if (customId.startsWith('account_category_select')) {
-        await interaction.deferReply({ flags: 64 });
+            const [, encodedTitle] = customId.split('|');
+            const storeTitle = encodedTitle ? decodeURIComponent(encodedTitle) : 'RO8LOX User Stock';
+            const selectedCat = interaction.values[0];
+            const categoryName = CATEGORY_NAMES[selectedCat] || selectedCat.toUpperCase();
 
-        const [, encodedTitle] = customId.split('|');
-        const storeTitle = encodedTitle ? decodeURIComponent(encodedTitle) : 'RO8LOX User Stock';
-        const selectedCat = interaction.values[0];
-        const categoryName = CATEGORY_NAMES[selectedCat] || selectedCat.toUpperCase();
+            const itemRecord = await Inventory.findOne({ itemId: selectedCat });
+            if (!itemRecord || itemRecord.codes.length === 0) {
+                return interaction.editReply({ content: `❌ No accounts are currently in stock for **${categoryName}**.` });
+            }
 
-        const itemRecord = await Inventory.findOne({ itemId: selectedCat });
-        if (!itemRecord || itemRecord.codes.length === 0) {
-            return interaction.editReply({ content: `❌ No accounts are currently in stock for **${categoryName}**.` });
+            const parsedStock = itemRecord.codes.map(parseAccountEntry);
+            const formattedStockList = parsedStock.map(i => i.displayLabel).join('\n');
+
+            const stockEmbed = new EmbedBuilder()
+                .setTitle(`${storeTitle} - ${categoryName}`)
+                .setDescription(
+                    `Before purchase read the above and <#1542306776622309437>.\n` +
+                    `All listed here accounts are unverified with no claimed billing.\n\n` +
+                    `\`\`\`\n${formattedStockList}\n\`\`\``
+                )
+                .setColor(0x2B2D31);
+
+            const stockOptions = parsedStock.slice(0, 25).map(item => ({
+                label: item.displayLabel.substring(0, 100),
+                value: item.username.substring(0, 100)
+            }));
+
+            const stockMenu = new StringSelectMenuBuilder()
+                .setCustomId(`select_stock_user|${selectedCat}`)
+                .setPlaceholder('Select a user in stock to purchase...')
+                .addOptions(stockOptions);
+
+            await interaction.editReply({
+                embeds: [stockEmbed],
+                components: [new ActionRowBuilder().addComponents(stockMenu)]
+            });
         }
 
-        // Safely parse entries (strips passwords out)
-        const parsedStock = itemRecord.codes.map(parseAccountEntry);
-        const formattedStockList = parsedStock.map(i => i.displayLabel).join('\n');
+        if (customId.startsWith('select_stock_user|')) {
+            await interaction.deferReply({ flags: 64 });
+            const [, categoryId] = customId.split('|');
+            const selectedUsername = interaction.values[0];
+            const sanitizedBuyer = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-        // Formats embed matching Screenshot 2
-        const stockEmbed = new EmbedBuilder()
-            .setTitle(`${storeTitle} - ${categoryName}`)
-            .setDescription(
-                `Before purchase read the above and <#1542306776622309437>.\n` +
-                `All listed here accounts are unverified with no claimed billing.\n\n` +
-                `\`\`\`\n${formattedStockList}\n\`\`\``
-            )
-            .setColor(0x2B2D31);
+            try {
+                const ticketChannel = await interaction.guild.channels.create({
+                    name: `buy-${selectedUsername.toLowerCase()}-${sanitizedBuyer}`.substring(0, 100),
+                    type: ChannelType.GuildText,
+                    permissionOverwrites: [
+                        { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+                        { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                        { id: botClient.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                        { id: ADMIN_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
+                    ]
+                });
 
-        // Safe dropdown options with passwords omitted (Discord allows max 25 options)
-        const stockOptions = parsedStock.slice(0, 25).map(item => ({
-            label: item.displayLabel.substring(0, 100),
-            value: item.username.substring(0, 100)
-        }));
+                const welcomeEmbed = new EmbedBuilder()
+                    .setTitle('🎫 Account Purchase Ticket')
+                    .setDescription(`Welcome <@${interaction.user.id}>!\n\nRequested Account: **@${selectedUsername}**\nCategory: **${(CATEGORY_NAMES[categoryId] || categoryId).toUpperCase()}**\n\nSupport staff will assist you shortly.`)
+                    .setColor(0x5865F2);
 
-        const stockMenu = new StringSelectMenuBuilder()
-            .setCustomId(`select_stock_user|${selectedCat}`)
-            .setPlaceholder('Select a user in stock to purchase...')
-            .addOptions(stockOptions);
+                await ticketChannel.send({
+                    content: `<@${interaction.user.id}> | <@&${ADMIN_ROLE_ID}>`,
+                    embeds: [welcomeEmbed],
+                    components: [getCancelButtonRow()]
+                });
 
-        await interaction.editReply({ 
-            embeds: [stockEmbed], 
-            components: [new ActionRowBuilder().addComponents(stockMenu)] 
-        });
-    }
-
-    if (customId.startsWith('select_stock_user|')) {
-        await interaction.deferReply({ flags: 64 });
-        const [, categoryId] = customId.split('|');
-        const selectedUsername = interaction.values[0]; 
-        const sanitizedBuyer = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
-
-        try {
-            const ticketChannel = await interaction.guild.channels.create({
-                name: `buy-${selectedUsername.toLowerCase()}-${sanitizedBuyer}`.substring(0, 100),
-                type: ChannelType.GuildText,
-                permissionOverwrites: [
-                    { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-                    { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-                    { id: botClient.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-                    { id: ADMIN_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
-                ]
-            });
-
-            const welcomeEmbed = new EmbedBuilder()
-                .setTitle('🎫 Account Purchase Ticket')
-                .setDescription(`Welcome <@${interaction.user.id}>!\n\nRequested Account: **@${selectedUsername}**\nCategory: **${(CATEGORY_NAMES[categoryId] || categoryId).toUpperCase()}**\n\nSupport staff will assist you shortly.`)
-                .setColor(0x5865F2);
-
-            await ticketChannel.send({ 
-                content: `<@${interaction.user.id}> | <@&${ADMIN_ROLE_ID}>`, 
-                embeds: [welcomeEmbed], 
-                components: [getCancelButtonRow()] 
-            });
-
-            await interaction.editReply({ content: `✅ Ticket created: <#${ticketChannel.id}>` });
-        } catch (err) {
-            console.error('Ticket error:', err);
-            await interaction.editReply({ content: '❌ Failed to create ticket channel.' });
+                await interaction.editReply({ content: `✅ Ticket created: <#${ticketChannel.id}>` });
+            } catch (err) {
+                console.error('Ticket error:', err);
+                await interaction.editReply({ content: '❌ Failed to create ticket channel.' });
+            }
         }
-    }
-}
 
         if (customId.startsWith('apply_coupon|')) {
             await interaction.deferUpdate();
             const [, productKey, originalPrice] = customId.split('|');
             const discountPct = parseInt(interaction.values[0]);
-            
+
             let userLedger = await Ledger.findOne({ discordId: interaction.user.id });
             const couponIndex = userLedger.coupons.indexOf(discountPct);
-            
+
             if (couponIndex > -1) {
                 userLedger.coupons.splice(couponIndex, 1);
                 await userLedger.save();
-                
+
                 const newPrice = (parseFloat(originalPrice) * (1 - (discountPct / 100))).toFixed(2);
                 const discountedEmbed = new EmbedBuilder()
                     .setTitle('🛍️ Secure Checkout Portal (Discount Applied)')
@@ -891,10 +879,10 @@ if (customId.startsWith('purchase_action|')) {
 
         if (customId === 'user_tier_select') {
             const tier = interaction.values[0];
-            const subCategories = tier === 'high_tier' 
-                ? [{ label: 'Rare Words', value: 'cat_rare_words' }] 
-                : tier === 'mid_tier' 
-                ? [{ label: '4 Letters', value: 'cat_4_letters' }] 
+            const subCategories = tier === 'high_tier'
+                ? [{ label: 'Rare Words', value: 'cat_rare_words' }]
+                : tier === 'mid_tier'
+                ? [{ label: '4 Letters', value: 'cat_4_letters' }]
                 : [{ label: '5 Digits', value: 'cat_5_digits' }];
 
             const subMenu = new StringSelectMenuBuilder().setCustomId(`user_subcat_select|${tier}`).setPlaceholder('Select subcategory...').addOptions(subCategories);

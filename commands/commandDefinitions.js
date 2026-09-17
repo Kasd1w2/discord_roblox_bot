@@ -23,6 +23,7 @@ new SlashCommandBuilder()
         ))
     .addStringOption(opt => opt.setName('image_url').setDescription('Thumbnail / Image URL (Optional)').setRequired(false))
     .addStringOption(opt => opt.setName('catalog_url').setDescription('Rolimons link (Optional)').setRequired(false)),
+    new SlashCommandBuilder()
         .setName('my-codes')
         .setDescription('Inspect your previously purchased items and points'),
     new SlashCommandBuilder()

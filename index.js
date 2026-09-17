@@ -22,7 +22,43 @@ const {
 } = require('discord.js');
 
 // Category mapping helper
+const TIERS = {
+    'high_tier': {
+        label: '🔥 High Tier',
+        subcategories: [
+            { label: '2 Letters', value: '2l' },
+            { label: '3 Digits', value: '3d' },
+            { label: 'Real Words', value: 'real_words' }
+        ]
+    },
+    'mid_tier': {
+        label: '⚡ Mid Tier',
+        subcategories: [
+            { label: '3 Letters', value: '3l' },
+            { label: '4 Digits', value: '4d' },
+            { label: 'Clean Compounds', value: 'clean_compounds' }
+        ]
+    },
+    'low_tier': {
+        label: '🌱 Low Tier',
+        subcategories: [
+            { label: 'Triple Numbers', value: 'triple' },
+            { label: '4 Letters', value: '4l' },
+            { label: 'Edgy Compounds', value: 'edgy' },
+            { label: 'Finance Compounds', value: 'finance' },
+            { label: 'Leetspeak', value: 'leetspeak' },
+            { label: 'Other', value: 'other' }
+        ]
+    }
+};
+
 const CATEGORY_NAMES = {
+    '2l': '2 Letters',
+    '3d': '3 Digits',
+    'real_words': 'Real Words',
+    '3l': '3 Letters',
+    '4d': '4 Digits',
+    'clean_compounds': 'Clean Compounds',
     'triple': 'Triple Numbers',
     '4l': '4 Letters',
     'edgy': 'Edgy Compounds',
@@ -30,7 +66,6 @@ const CATEGORY_NAMES = {
     'leetspeak': 'Leetspeak',
     'other': 'Other'
 };
-
 // Account line parser (omits passwords from displays)
 function parseAccountEntry(codeString) {
     let raw = codeString.trim();
@@ -340,17 +375,18 @@ botClient.on('interactionCreate', async interaction => {
                     )
                     .setColor(0x2B2D31);
 
-                const categoryMenu = new StringSelectMenuBuilder()
-                    .setCustomId(`account_category_select|${encodeURIComponent(customTitle)}`)
-                    .setPlaceholder('Select a category...')
-                    .addOptions([
-                        { label: 'Triple Numbers', value: 'triple' },
-                        { label: '4 Letters', value: '4l' },
-                        { label: 'Edgy Compounds', value: 'edgy' },
-                        { label: 'Finance Compounds', value: 'finance' },
-                        { label: 'Leetspeak', value: 'leetspeak' },
-                        { label: 'Other', value: 'other' }
-                    ]);
+                const tierMenu = new StringSelectMenuBuilder()
+    .setCustomId(`tier_select|${encodeURIComponent(customTitle)}`)
+    .setPlaceholder('Select a tier...')
+    .addOptions([
+        { label: '🔥 High Tier', value: 'high_tier', description: '2 Letters, 3 Digits, Real Words' },
+        { label: '⚡ Mid Tier', value: 'mid_tier', description: '3 Letters, 4 Digits, Clean Compounds' },
+        { label: '🌱 Low Tier', value: 'low_tier', description: 'Triples, 4L, Edgy, Finance, Leetspeak, Other' }
+    ]);
+
+const targetChannel = await interaction.guild.channels.fetch(selectedChannelOption.id);
+await targetChannel.send({ embeds: [catalogEmbed], components: [new ActionRowBuilder().addComponents(tierMenu)] });
+return interaction.reply({ content: '✅ Tier catalog deployed successfully!', flags: 64 });
 
                 const targetChannel = await interaction.guild.channels.fetch(selectedChannelOption.id);
                 await targetChannel.send({ embeds: [catalogEmbed], components: [new ActionRowBuilder().addComponents(categoryMenu)] });
@@ -719,47 +755,85 @@ botClient.on('interactionCreate', async interaction => {
             await interaction.editReply({ content: `🎉 **Redeemed!** Spent **${cost} points** for a **${discountPct}% Off Coupon**.` });
         }
 
-        if (customId.startsWith('account_category_select')) {
-            await interaction.deferReply({ flags: 64 });
+        // A. Tier Selection (Resets public dropdown & sends ephemeral subcategory menu)
+if (customId.startsWith('tier_select')) {
+    const [, encodedTitle] = customId.split('|');
+    const selectedTierKey = interaction.values[0];
+    const tierData = TIERS[selectedTierKey];
 
-            const [, encodedTitle] = customId.split('|');
-            const storeTitle = encodedTitle ? decodeURIComponent(encodedTitle) : 'RO8LOX User Stock';
-            const selectedCat = interaction.values[0];
-            const categoryName = CATEGORY_NAMES[selectedCat] || selectedCat.toUpperCase();
+    // Reset public menu instantly so users can re-click any option anytime
+    const freshTierMenu = new StringSelectMenuBuilder()
+        .setCustomId(customId)
+        .setPlaceholder('Select a tier...')
+        .addOptions([
+            { label: '🔥 High Tier', value: 'high_tier', description: '2 Letters, 3 Digits, Real Words' },
+            { label: '⚡ Mid Tier', value: 'mid_tier', description: '3 Letters, 4 Digits, Clean Compounds' },
+            { label: '🌱 Low Tier', value: 'low_tier', description: 'Triples, 4L, Edgy, Finance, Leetspeak, Other' }
+        ]);
 
-            const itemRecord = await Inventory.findOne({ itemId: selectedCat });
-            if (!itemRecord || itemRecord.codes.length === 0) {
-                return interaction.editReply({ content: `❌ No accounts are currently in stock for **${categoryName}**.` });
-            }
+    await interaction.update({
+        components: [new ActionRowBuilder().addComponents(freshTierMenu)]
+    });
 
-            const parsedStock = itemRecord.codes.map(parseAccountEntry);
-            const formattedStockList = parsedStock.map(i => i.displayLabel).join('\n');
+    // Send ephemeral subcategory dropdown to the user
+    const subcatMenu = new StringSelectMenuBuilder()
+        .setCustomId(`subcat_select|${encodedTitle}`)
+        .setPlaceholder(`Select a subcategory under ${tierData.label}...`)
+        .addOptions(tierData.subcategories);
 
-            const stockEmbed = new EmbedBuilder()
-                .setTitle(`${storeTitle} - ${categoryName}`)
-                .setDescription(
-                    `Before purchase read the above and <#1542306776622309437>.\n` +
-                    `All listed here accounts are unverified with no claimed billing.\n\n` +
-                    `\`\`\`\n${formattedStockList}\n\`\`\``
-                )
-                .setColor(0x2B2D31);
+    const subcatEmbed = new EmbedBuilder()
+        .setTitle(`${tierData.label}`)
+        .setDescription('Select a subcategory below to view available stock:')
+        .setColor(0x5865F2);
 
-            const stockOptions = parsedStock.slice(0, 25).map(item => ({
-                label: item.displayLabel.substring(0, 100),
-                value: item.username.substring(0, 100)
-            }));
+    await interaction.followUp({
+        embeds: [subcatEmbed],
+        components: [new ActionRowBuilder().addComponents(subcatMenu)],
+        flags: 64
+    });
+}
 
-            const stockMenu = new StringSelectMenuBuilder()
-                .setCustomId(`select_stock_user|${selectedCat}`)
-                .setPlaceholder('Select a user in stock to purchase...')
-                .addOptions(stockOptions);
+// B. Subcategory Selection (Fetches stock & user purchase dropdown)
+if (customId.startsWith('subcat_select')) {
+    await interaction.deferReply({ flags: 64 });
 
-            await interaction.editReply({
-                embeds: [stockEmbed],
-                components: [new ActionRowBuilder().addComponents(stockMenu)]
-            });
-        }
+    const [, encodedTitle] = customId.split('|');
+    const storeTitle = encodedTitle ? decodeURIComponent(encodedTitle) : 'RO8LOX User Stock';
+    const selectedSubcat = interaction.values[0];
+    const categoryName = CATEGORY_NAMES[selectedSubcat] || selectedSubcat.toUpperCase();
 
+    const itemRecord = await Inventory.findOne({ itemId: selectedSubcat });
+    if (!itemRecord || itemRecord.codes.length === 0) {
+        return interaction.editReply({ content: `❌ No accounts are currently in stock for **${categoryName}**.` });
+    }
+
+    const parsedStock = itemRecord.codes.map(parseAccountEntry);
+    const formattedStockList = parsedStock.map(i => i.displayLabel).join('\n');
+
+    const stockEmbed = new EmbedBuilder()
+        .setTitle(`${storeTitle} - ${categoryName}`)
+        .setDescription(
+            `Before purchase read the channel rules and <#1542306776622309437>.\n` +
+            `All listed accounts are unverified with no claimed billing.\n\n` +
+            `\`\`\`\n${formattedStockList}\n\`\`\``
+        )
+        .setColor(0x2B2D31);
+
+    const stockOptions = parsedStock.slice(0, 25).map(item => ({
+        label: item.displayLabel.substring(0, 100),
+        value: item.username.substring(0, 100)
+    }));
+
+    const stockMenu = new StringSelectMenuBuilder()
+        .setCustomId(`select_stock_user|${selectedSubcat}`)
+        .setPlaceholder('Select a user in stock to purchase...')
+        .addOptions(stockOptions);
+
+    await interaction.editReply({
+        embeds: [stockEmbed],
+        components: [new ActionRowBuilder().addComponents(stockMenu)]
+    });
+}
         if (customId.startsWith('select_stock_user|')) {
             await interaction.deferReply({ flags: 64 });
             const [, categoryId] = customId.split('|');

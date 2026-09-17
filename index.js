@@ -180,19 +180,23 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 });
 
 
-// --- DISCORD COMMAND DEFINITIONS ---
+// --- DISCORD COMMAND DEFINITIONS ---  
 const appCommands = [
 new SlashCommandBuilder()
         .setName('setup-store')
-        .setDescription('Create a new product post inside a Forum Channel (Admin)')
-        .addChannelOption(opt => opt.setName('forum_channel').setDescription('Select the Forum channel to post in').addChannelTypes(ChannelType.GuildForum).setRequired(true))
+        .setDescription('Create a new product post or account stock display (Admin)')
+        .addChannelOption(opt => opt.setName('channel').setDescription('Select the channel (Forum for Items, Text for Accounts)').setRequired(true))
+        .addStringOption(opt => opt.setName('store_type').setDescription('What are you setting up?').setRequired(true).addChoices(
+            { name: 'Item Store (Automated Codes)', value: 'item' },
+            { name: 'Account Stock Display (Users)', value: 'account' }
+        ))
         .addStringOption(opt => opt.setName('title').setDescription('Display Title / Post Name').setRequired(true))
-        .addNumberOption(opt => opt.setName('price').setDescription('Cost in USD').setRequired(true))
-        .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID matching inventory key').setRequired(true))
-        .addStringOption(opt => opt.setName('image_url').setDescription('Thumbnail Image URL').setRequired(true))
+        .addStringOption(opt => opt.setName('image_url').setDescription('Thumbnail / Image URL (Optional)').setRequired(false))
+        .addNumberOption(opt => opt.setName('price').setDescription('Cost in USD (Required for items)').setRequired(false))
+        .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID matching inventory (Required for items)').setRequired(false))
         .addStringOption(opt => opt.setName('delivery_method')
-            .setDescription('How will this item be delivered?')
-            .setRequired(true)
+            .setDescription('Delivery Method (For items)')
+            .setRequired(false)
             .addChoices(
                 { name: 'Automated Code', value: 'Automated Code Delivery' },
                 { name: 'Automated Link', value: 'Automated Activation Link' },
@@ -378,23 +382,51 @@ botClient.on('interactionCreate', async interaction => {
             await interaction.reply({ content: '✅ Coupon store deployed.', flags: 64 });
         }
 
-        if (commandLabel === 'setup-store') {
-    const selectedChannelOption = interaction.options.getChannel('forum_channel');
-    const productTitle = interaction.options.getString('title');
-    const productPrice = interaction.options.getNumber('price');
-    const productKey = interaction.options.getString('item_id');
-    const robloxLink = interaction.options.getString('catalog_url');
-    const thumbnailPic = interaction.options.getString('image_url');
+       if (commandLabel === 'setup-store') {
+            const storeType = interaction.options.getString('type');
+            const selectedChannelOption = interaction.options.getChannel('channel');
 
-    updateBotStatus(`🏷️ Creating store listing: ${productTitle}`);
-    
-    const targetForum = await interaction.guild.channels.fetch(selectedChannelOption.id);
-    // ... a többi kódrészlet marad változatlan
+            if (storeType === 'catalog') {
+                updateBotStatus(`🏷️ Deploying User Catalog`);
+                
+                const catalogEmbed = new EmbedBuilder()
+                    .setTitle('💎 R0BLOX - Username Stock')
+                    .setDescription(`All accs are either owned by us, or within a VERY SMALL group of users we proxy for. All these users have been vetted to ensure acc safety.\n\n` +
+                                    `🛡️ Every acc is new to com, unverified, and sniped by us (unless stated otherwise).\n\n` +
+                                    `Users are sorted by price in USD. Select your budget within the dropdown to browse.\n\n` +
+                                    `**Payment Methods:** 🪙 Crypto, ✨ Clean Limiteds\n` +
+                                    `*(Extra fees apply for PayPal, CashApp, Apple Pay, Venmo)*`)
+                    .setColor(0x2B2D31);
+
+                const tierMenu = new StringSelectMenuBuilder()
+                    .setCustomId('user_tier_select')
+                    .setPlaceholder('Select a Budget Tier...')
+                    .addOptions([
+                        { label: 'High Tier (1000+)', description: 'View high tier accounts', value: 'high_tier', emoji: '💎' },
+                        { label: 'Mid Tier (200-1000)', description: 'View mid tier accounts', value: 'mid_tier', emoji: '⭐' },
+                        { label: 'Low Tier (0-200)', description: 'View low tier accounts', value: 'low_tier', emoji: '💵' }
+                    ]);
+
+                const targetChannel = await interaction.guild.channels.fetch(selectedChannelOption.id);
+                await targetChannel.send({ embeds: [catalogEmbed], components: [new ActionRowBuilder().addComponents(tierMenu)] });
+                return interaction.reply({ content: '✅ Username catalog deployed successfully!', flags: 64 });
+            }
+
+            // --- SINGLE PRODUCT (FORUM) LOGIC ---
+            const productTitle = interaction.options.getString('title');
+            const productPrice = interaction.options.getNumber('price');
+            const productKey = interaction.options.getString('item_id');
+            const robloxLink = interaction.options.getString('catalog_url');
+            const thumbnailPic = interaction.options.getString('image_url');
+            const deliveryMethod = interaction.options.getString('delivery_method');
+
+            if (!productTitle || !productPrice || !productKey || !thumbnailPic || !deliveryMethod) {
+                return interaction.reply({ content: '❌ Missing required fields for a Single Item forum post.', flags: 64 });
+            }
+
+            updateBotStatus(`🏷️ Creating store listing: ${productTitle}`);
+            const targetForum = await interaction.guild.channels.fetch(selectedChannelOption.id);
             
-            // 1. Grab the selected delivery method
-            const deliveryMethod = interaction.options.getString('delivery_method'); 
-
-            // 2. Pass it into the embed fields dynamically
             const embedFields = [
                 { name: 'Price', value: `$${productPrice} USD`, inline: true },
                 { name: 'Delivery', value: deliveryMethod, inline: true }, 
@@ -412,22 +444,17 @@ botClient.on('interactionCreate', async interaction => {
                 .addFields(embedFields)
                 .setImage(thumbnailPic);
 
-        // Safely truncate the label to ensure it never exceeds Discord's 80-character limit
-const fullLabel = `Purchase ${productTitle}`;
-const safeLabel = fullLabel.length > 80 ? `${fullLabel.slice(0, 77)}...` : fullLabel;
+            const fullLabel = `Purchase ${productTitle}`;
+            const safeLabel = fullLabel.length > 80 ? `${fullLabel.slice(0, 77)}...` : fullLabel;
 
-const buyActionBtn = new ButtonBuilder()
-    .setCustomId(`purchase_action|${productKey}|${productPrice}`)
-    .setLabel(safeLabel)
-    .setStyle(ButtonStyle.Primary);
-            const buttonRow = new ActionRowBuilder().addComponents(buyActionBtn);
+            const buyActionBtn = new ButtonBuilder()
+                .setCustomId(`purchase_action|${productKey}|${productPrice}`)
+                .setLabel(safeLabel)
+                .setStyle(ButtonStyle.Primary);
 
             await targetForum.threads.create({
                 name: productTitle,
-                message: {
-                    embeds: [listingEmbed],
-                    components: [buttonRow]
-                }
+                message: { embeds: [listingEmbed], components: [new ActionRowBuilder().addComponents(buyActionBtn)] }
             });
 
             await interaction.reply({ content: `✅ Successfully created forum post for **${productTitle}**!`, flags: 64 });
@@ -628,93 +655,128 @@ const buyActionBtn = new ButtonBuilder()
     // --- BUTTON & SELECT MENU INTERACTION HANDLERS ---
     
     // 1. Coupon Purchase Logic
-    if (interaction.isStringSelectMenu() && interaction.customId === 'buy_coupon') {
-        await interaction.deferReply({ flags: 64 });
-        const discountPct = parseInt(interaction.values[0]);
-        const cost = discountPct === 10 ? 5 : 10;
-        
-        let userLedger = await Ledger.findOne({ discordId: interaction.user.id });
-        if (!userLedger || userLedger.points < cost) {
-            return interaction.editReply({ content: `❌ You do not have enough points. This coupon costs **${cost} points**.` });
+    // --- BUTTON & SELECT MENU INTERACTION HANDLERS ---
+    
+    // --- USER STOCK CATALOG NAVIGATION (PASTE HERE) ---
+    if (interaction.isStringSelectMenu() && interaction.customId === 'user_tier_select') {
+        const tier = interaction.values[0];
+        let tierName = '';
+        let subCategories = [];
+
+        if (tier === 'high_tier') {
+            tierName = 'High Tier (1000+)';
+            subCategories = [
+                { label: 'Rare Words', value: 'cat_rare_words', description: 'Real dictionary words' },
+                { label: '3 Letters', value: 'cat_3_letters', description: 'Extremely rare 3L names' }
+            ];
+        } else if (tier === 'mid_tier') {
+            tierName = 'Mid Tier (200-1000)';
+            subCategories = [
+                { label: '4 Letters', value: 'cat_4_letters', description: 'View 4 Letters accounts' },
+                { label: 'Semi-Rare Words', value: 'cat_semi_rare', description: 'Common names and verbs' }
+            ];
+        } else {
+            tierName = 'Low Tier (0-200)';
+            subCategories = [
+                { label: 'Swaps', value: 'cat_swaps', description: 'View Swaps accounts' },
+                { label: 'Uncensors', value: 'cat_uncensors', description: 'View Uncensors accounts' },
+                { label: 'ID Snipes', value: 'cat_id_snipes', description: 'View ID Snipes accounts' },
+                { label: '5 Digits', value: 'cat_5_digits', description: 'View 5 Digits accounts' }
+            ];
         }
 
-        userLedger.points -= cost;
-        userLedger.coupons.push(discountPct);
-        await userLedger.save();
+        const subcatEmbed = new EmbedBuilder()
+            .setTitle(`📂 R0BLOX User Stock - ${tierName}`)
+            .setDescription('Before purchase read the above and #tos.\n\nSelect a subcategory from the dropdown below to view available accounts.\n\n**Total Accounts:** 564')
+            .setColor(0x5865F2);
 
-        return interaction.editReply({ content: `✅ Success! You bought a **${discountPct}% Off Coupon** for ${cost} points. You now have ${userLedger.points} points remaining.` });
+        const subMenu = new StringSelectMenuBuilder()
+            .setCustomId(`user_subcat_select|${tier}`)
+            .setPlaceholder('Select a subcategory...')
+            .addOptions(subCategories);
+
+        await interaction.reply({ embeds: [subcatEmbed], components: [new ActionRowBuilder().addComponents(subMenu)], flags: 64 });
     }
 
-    if (interaction.isButton()) {
-        if (interaction.customId === 'close_order') {
-            await interaction.reply({ content: '🗑️ Canceling order... closing channel in 5 seconds.' });
-            setTimeout(async () => { await interaction.channel.delete().catch(() => {}); }, 5000);
-            return;
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('user_subcat_select|')) {
+        const subCat = interaction.values[0];
+        let catTitle = subCat.replace('cat_', '').replace(/_/g, ' ').toUpperCase();
+        let accountList = '';
+
+        // Mock stock logic (can be expanded to pull from MongoDB later)
+        switch(subCat) {
+            case 'cat_5_digits':
+                accountList = `\`@03679\` - **$10**\n\`@03691\` - **$10**\n\`@03926\` - **$10**`;
+                break;
+            case 'cat_4_letters':
+                accountList = `\`@abcd\` - **$250**\n\`@xyza\` - **$220**`;
+                break;
+            default:
+                accountList = `*Inventory is currently being audited... check back shortly!*`;
         }
 
-        // 2. Initial Purchase Action (Check for Coupons)
-        if (interaction.customId.startsWith('purchase_action|')) {
-            await interaction.deferReply({ flags: 64 });
-            const [, productKey, productPrice] = interaction.customId.split('|');
-            const priceNum = parseFloat(productPrice);
+        const listEmbed = new EmbedBuilder()
+            .setTitle(`📜 R0BLOX User Stock - ${catTitle}`)
+            .setDescription(`Before purchase read the above and #tos.\nAll listed here accounts are unverified with no claimed billing.\n\n${accountList}`)
+            .setColor(0x2B2D31);
 
-            try {
-                const itemRecord = await Inventory.findOne({ itemId: productKey });
-                if (!itemRecord || itemRecord.codes.length === 0) {
-                    await interaction.editReply({ content: `❌ Sorry, **${productKey}** is currently **out of stock**.` });
-                    setTimeout(async () => { await interaction.deleteReply().catch(() => {}); }, 4000);
-                    return;
-                }
+        const ticketBtn = new ButtonBuilder()
+            .setCustomId(`create_user_ticket|${catTitle}`)
+            .setLabel('Create Ticket')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('🎫');
 
-                const guild = interaction.guild;
-                const sanitizedUsername = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
-                const orderChannel = await guild.channels.create({
-                    name: `trade-${productKey}-${sanitizedUsername}`.substring(0, 100),
-                    type: ChannelType.GuildText,
-                    permissionOverwrites: [
-                        { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-                        { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AddReactions] },
-                        { id: botClient.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AddReactions] }
-                    ],
-                });
+        await interaction.update({ 
+            embeds: [listEmbed], 
+            components: [
+                interaction.message.components[0], 
+                new ActionRowBuilder().addComponents(ticketBtn)
+            ] 
+        });
+    }
 
-                await interaction.editReply({ content: `🛒 Your private order channel has been created: <#${orderChannel.id}>` });
-                setTimeout(async () => { await interaction.deleteReply().catch(() => {}); }, 6000);
+    if (interaction.isButton() && interaction.customId.startsWith('create_user_ticket|')) {
+        await interaction.deferReply({ flags: 64 });
+        const [, categoryName] = interaction.customId.split('|');
+        const guild = interaction.guild;
+        const sanitizedUsername = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const ADMIN_ROLE_ID = '1542306776622309437'; 
 
-                let userLedger = await Ledger.findOne({ discordId: interaction.user.id });
-                
-                if (priceNum < 100 && userLedger && userLedger.coupons && userLedger.coupons.length > 0) {
-                    const couponEmbed = new EmbedBuilder()
-                        .setTitle('🎟️ Apply Coupon?')
-                        .setDescription(`You are purchasing **${productKey}** for **$${productPrice}**.\nYou have discount coupons available! Would you like to use one on this order?`)
-                        .setColor(0xFFD700);
+        try {
+            const ticketChannel = await guild.channels.create({
+                name: `buy-${categoryName.toLowerCase().replace(/\s/g, '-')}-${sanitizedUsername}`.substring(0, 100),
+                type: ChannelType.GuildText,
+                permissionOverwrites: [
+                    { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+                    { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+                    { id: botClient.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                    { id: ADMIN_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
+                ]
+            });
 
-                    const btnYes = new ButtonBuilder().setCustomId(`use_coupon_yes|${productKey}|${productPrice}`).setLabel('Yes, apply coupon').setStyle(ButtonStyle.Success);
-                    const btnNo = new ButtonBuilder().setCustomId(`use_coupon_no|${productKey}|${productPrice}`).setLabel('No, save for later').setStyle(ButtonStyle.Secondary);
-                    const btnCancel = new ButtonBuilder().setCustomId('close_order').setLabel('Cancel Order').setStyle(ButtonStyle.Danger).setEmoji('🗑️');
+            const welcomeEmbed = new EmbedBuilder()
+                .setTitle('🎫 Account Purchase Ticket')
+                .setDescription(`Welcome <@${interaction.user.id}>!\n\nYou requested to buy a **${categoryName}** account.\n\nPlease state exactly which username you'd like to purchase and your preferred payment method.`)
+                .setColor(0x5865F2);
 
-                    await orderChannel.send({
-                        content: `<@${interaction.user.id}>`,
-                        embeds: [couponEmbed],
-                        components: [new ActionRowBuilder().addComponents(btnYes, btnNo, btnCancel)]
-                    });
-                } else {
-                    const polishedEmbed = new EmbedBuilder()
-                        .setTitle('🛍️ Secure Checkout Portal')
-                        .setDescription(`Welcome <@${interaction.user.id}>! You are initializing an order for **${productKey.toUpperCase()}**.\n\n` +
-                                        `• **Total Price:** \`$${productPrice} USD\`\n` +
-                                        `• **Status:** \`Awaiting Payment Selection\`\n\n` +
-                                        `Please make your selection from the dropdown menu below.`)
-                        .setColor(0x5865F2);
+            const closeBtn = new ButtonBuilder().setCustomId('close_order').setLabel('Close Ticket').setStyle(ButtonStyle.Danger).setEmoji('🔒');
 
-                    await orderChannel.send({ embeds: [polishedEmbed], components: [generatePaymentMenu(productKey, productPrice, orderChannel.id), getCancelButtonRow()] });
-                }
+            await ticketChannel.send({ 
+                content: `<@${interaction.user.id}> | <@&${ADMIN_ROLE_ID}>`, 
+                embeds: [welcomeEmbed], 
+                components: [new ActionRowBuilder().addComponents(closeBtn)] 
+            });
 
-            } catch (err) {
-                console.error('Error creating order channel:', err);
-                await interaction.editReply({ content: 'Encountered an error opening your order channel.' });
-            }
+            await interaction.editReply({ content: `✅ Ticket created: <#${ticketChannel.id}>` });
+        } catch (err) {
+            console.error('Ticket creation error:', err);
+            await interaction.editReply({ content: '❌ Failed to create ticket channel. Check bot permissions.' });
         }
+    }
+    // --- END USER STOCK CATALOG NAVIGATION ---
+
+    // 1. Coupon Purchase Logic (This was already here in your file)
+    if (interaction.isStringSelectMenu() && interaction.customId === 'buy_coupon') {
 
         // 3. User clicked Yes to use a coupon
         if (interaction.customId.startsWith('use_coupon_yes|')) {
@@ -739,7 +801,6 @@ const buyActionBtn = new ButtonBuilder()
             });
         }
 
-        // 4. User clicked No to coupon
         // 4. User clicked No to coupon
 if (interaction.customId.startsWith('use_coupon_no|')) {
     const [, productKey, productPrice] = interaction.customId.split('|');

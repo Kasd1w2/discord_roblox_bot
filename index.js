@@ -3,11 +3,9 @@ const express = require('express');
 const mongoose = require('mongoose');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const axios = require('axios');
-const TICKET_CHANNEL_ID = '1542544665969164308';
 const { 
     Client, 
     GatewayIntentBits, 
-    SlashCommandBuilder, 
     REST, 
     Routes, 
     EmbedBuilder, 
@@ -23,36 +21,17 @@ const {
     PermissionFlagsBits
 } = require('discord.js');
 
+// Modular Imports
+const Inventory = require('./models/Inventory');
+const Ledger = require('./models/Ledger');
+const appCommands = require('./commands/commandDefinitions');
 
-function updateBotStatus(text, temporaryMs = 15000) {
-    if (!botClient || !botClient.user) return;
-    botClient.user.setActivity(text, { type: ActivityType.Custom });
-
-    if (temporaryMs > 0) {
-        setTimeout(() => {
-            botClient.user.setActivity('🛒 Stocked Store Operations', { type: ActivityType.Watching });
-        }, temporaryMs);
-    }
-}
+const ADMIN_ROLE_ID = '1542306776622309437';
 
 // --- DATABASE CONNECTIVITY ---
 mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log('Successfully connected to MongoDB Atlas.'))
     .catch(err => console.error('MongoDB connection error:', err));
-
-const InventorySchema = new mongoose.Schema({
-    itemId: { type: String, required: true, unique: true },
-    codes: [String]
-});
-const Inventory = mongoose.model('Inventory', InventorySchema);
-
-const LedgerSchema = new mongoose.Schema({
-    discordId: { type: String, required: true, unique: true },
-    purchases: [{ item: String, code: String }],
-    points: { type: Number, default: 0 },
-    coupons: [{ type: Number }] // Stores array of discounts, e.g. [10, 15]
-});
-const Ledger = mongoose.model('Ledger', LedgerSchema);
 
 const webApp = express();
 const botClient = new Client({ 
@@ -65,9 +44,19 @@ const botClient = new Client({
 });
 
 // --- HELPER FUNCTIONS ---
+function updateBotStatus(text, temporaryMs = 15000) {
+    if (!botClient || !botClient.user) return;
+    botClient.user.setActivity(text, { type: ActivityType.Custom });
+
+    if (temporaryMs > 0) {
+        setTimeout(() => {
+            botClient.user.setActivity('🛒 Stocked Store Operations', { type: ActivityType.Watching });
+        }, temporaryMs);
+    }
+}
+
 async function getCryptoAmounts(usdPrice) {
     try {
-        // Binance public API is generally more lenient with cloud IPs
         const [eth, ltc, btc, sol] = await Promise.all([
             axios.get('https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT'),
             axios.get('https://api.binance.com/api/v3/ticker/price?symbol=LTCUSDT'),
@@ -86,12 +75,13 @@ async function getCryptoAmounts(usdPrice) {
         return { eth: 'Check live rate', ltc: 'Check live rate', btc: 'Check live rate', sol: 'Check live rate' };
     }
 }
+
 function calculatePoints(usdPrice) {
     if (usdPrice <= 0) return 0;
     if (usdPrice <= 100) return 2;
     if (usdPrice <= 500) return 4;
     if (usdPrice <= 1000) return 7;
-    return 10; // $1000+
+    return 10;
 }
 
 function generatePaymentMenu(productKey, productPrice, channelId) {
@@ -104,6 +94,7 @@ function generatePaymentMenu(productKey, productPrice, channelId) {
         ]);
     return new ActionRowBuilder().addComponents(selectMenu);
 }
+
 function getCancelButtonRow() {
     const cancelBtn = new ButtonBuilder()
         .setCustomId('close_order')
@@ -113,7 +104,7 @@ function getCancelButtonRow() {
     return new ActionRowBuilder().addComponents(cancelBtn);
 }
 
-// --- STRIPE WEBHOOK ENDPOINT (AUTOMATED CODE DELIVERY & POINTS) ---
+// --- STRIPE WEBHOOK ENDPOINT ---
 webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
     const signatureHeader = req.headers['stripe-signature'];
     let stripeEvent;
@@ -132,14 +123,12 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         const usdPricePaid = session.amount_total / 100;
 
         try {
-            // 1. Update status to show delivery is processing
             updateBotStatus(`💳 Payment received! Auto-delivering ${targetItemId.toUpperCase()}...`);
 
             const itemRecord = await Inventory.findOne({ itemId: targetItemId });
             
             if (!itemRecord || itemRecord.codes.length === 0) {
                 console.error(`CRITICAL: User ${buyerDiscordId} paid for ${targetItemId} but stock is empty!`);
-                // 2. Set an error status if stock is missing
                 updateBotStatus(`⚠️ ERROR: Stock empty for ${targetItemId.toUpperCase()}!`);
                 return res.status(200).json({ received: true }); 
             }
@@ -179,93 +168,14 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
     res.status(200).json({ received: true });
 });
 
-
-// --- DISCORD COMMAND DEFINITIONS ---  
-const appCommands = [
-new SlashCommandBuilder()
-        .setName('setup-store')
-        .setDescription('Create a new product post or account stock display (Admin)')
-        .addChannelOption(opt => opt.setName('channel').setDescription('Select the channel (Forum for Items, Text for Accounts)').setRequired(true))
-        .addStringOption(opt => opt.setName('store_type').setDescription('What are you setting up?').setRequired(true).addChoices(
-            { name: 'Item Store (Automated Codes)', value: 'item' },
-            { name: 'Account Stock Display (Users)', value: 'account' }
-        ))
-        .addStringOption(opt => opt.setName('title').setDescription('Display Title / Post Name').setRequired(true))
-        .addStringOption(opt => opt.setName('image_url').setDescription('Thumbnail / Image URL (Optional)').setRequired(false))
-        .addNumberOption(opt => opt.setName('price').setDescription('Cost in USD (Required for items)').setRequired(false))
-        .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID matching inventory (Required for items)').setRequired(false))
-        .addStringOption(opt => opt.setName('delivery_method')
-            .setDescription('Delivery Method (For items)')
-            .setRequired(false)
-            .addChoices(
-                { name: 'Automated Code', value: 'Automated Code Delivery' },
-                { name: 'Automated Link', value: 'Automated Activation Link' },
-                { name: 'Manual Delivery', value: 'Manual Delivery' },
-                { name : 'User:Password', value: 'User:Password Delivery' },
-            ))
-        .addStringOption(opt => opt.setName('catalog_url').setDescription('Roblox Catalog / Rolimons link (Optional)').setRequired(false)),
-    new SlashCommandBuilder()
-        .setName('my-codes')
-        .setDescription('Inspect your previously purchased items and points'),
-    new SlashCommandBuilder()
-    .setName('request-limited')
-    .setDescription('Post the Request Limited informational embed (Admin)'),
-    new SlashCommandBuilder()
-        .setName('restock')
-        .setDescription('Add stock codes to an item (Admin)')
-        .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID key').setRequired(true))
-        .addStringOption(opt => opt.setName('codes').setDescription('Comma-separated codes (e.g. CODE1,CODE2)').setRequired(true)),
-    new SlashCommandBuilder()
-        .setName('stock')
-        .setDescription('Check available inventory stock levels'),
-    new SlashCommandBuilder()
-        .setName('remove-stock')
-        .setDescription('Remove specific codes from an item (Admin)')
-        .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID key').setRequired(true))
-        .addStringOption(opt => opt.setName('codes').setDescription('Comma-separated codes to remove').setRequired(true)),
-    new SlashCommandBuilder()
-        .setName('deliver')
-        .setDescription('Pull code from database and send code embed with user ping (Admin)')
-        .addUserOption(opt => opt.setName('buyer').setDescription('Select the user to ping').setRequired(true))
-        .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID key to pull code from').setRequired(true))
-        .addNumberOption(opt => opt.setName('price').setDescription('Order price in USD to award points (Optional)').setRequired(true)),
-    new SlashCommandBuilder()
-        .setName('close')
-        .setDescription('Close order channel and log successful/failed sale (Admin)')
-        .addStringOption(opt => opt.setName('status').setDescription('Was the payment successful?').setRequired(true).addChoices({ name: 'Successful', value: 'success' }, { name: 'Failed / Cancelled', value: 'failed' }))
-        .addStringOption(opt => opt.setName('method').setDescription('Payment method used').setRequired(false).addChoices({ name: 'Stripe (Card)', value: 'Stripe (Card)' }, { name: 'Cryptocurrency', value: 'Cryptocurrency' }))
-        .addUserOption(opt => opt.setName('buyer').setDescription('Buyer (needed to award points if successful)').setRequired(false))
-        .addNumberOption(opt => opt.setName('price').setDescription('Final order price (needed to award points)').setRequired(false)),
-    new SlashCommandBuilder()
-        .setName('coupon-store')
-        .setDescription('Drop the interactive Coupon Store embed in this channel (Admin)'),
-    new SlashCommandBuilder()
-        .setName('give-coupon')
-        .setDescription('Give a discount coupon to a user manually (Admin)')
-        .addUserOption(opt => opt.setName('user').setDescription('The user to receive the coupon').setRequired(true))
-        .addNumberOption(opt => opt.setName('discount').setDescription('Discount percentage (e.g., 10, 15, 50)').setRequired(true)),
-    new SlashCommandBuilder()
-        .setName('view-points')
-        .setDescription('View the points and coupons of a specific user (Admin)')
-        .addUserOption(opt => opt.setName('user').setDescription('The user to inspect').setRequired(true)),
-
-];
-
+// --- DISCORD CLIENT INITIALIZATION & COMMAND SYNC ---
 botClient.once('clientReady', async () => {
     console.log(`Bot operational as: ${botClient.user.tag}`);
-    // Default online status
     botClient.user.setActivity('🛒 Stocked Store Operations', { type: ActivityType.Watching });
     
-    // ... rest of your clientReady slash command sync code
     const restApi = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
-        // 1. Clear lingering global commands across all servers
-        await restApi.put(
-            Routes.applicationCommands(botClient.user.id),
-            { body: [] }
-        );
-
-        // 2. Register fresh guild-level commands
+        await restApi.put(Routes.applicationCommands(botClient.user.id), { body: [] });
         await restApi.put(
             Routes.applicationGuildCommands(botClient.user.id, '1542259049494610013'), 
             { body: appCommands }
@@ -276,21 +186,21 @@ botClient.once('clientReady', async () => {
     }
 });
 
-// --- EVENT ROUTING & REACTION LISTENER ---
+// --- EVENT ROUTING: REACTION LISTENER ---
 botClient.on('messageReactionAdd', async (reaction, user) => {
     if (user.bot) return;
     if (reaction.partial) try { await reaction.fetch(); } catch (err) { return; }
 
     if (reaction.message.channel.name.startsWith('trade-')) {
-        const ADMIN_ROLE_ID = '1542306776622309437';
         if (reaction.emoji.name === '✅') await reaction.message.channel.send(`✅ **Order confirmed complete by <@${user.id}>!** Thank you for your purchase.`);
         else if (reaction.emoji.name === '❌') await reaction.message.channel.send(`❌ **ISSUE REPORTED:** <@&${ADMIN_ROLE_ID}>, <@${user.id}> reported a problem with this trade delivery! Please assist.`);
     }
 });
 
+// --- MAIN INTERACTION ROUTER ---
 botClient.on('interactionCreate', async interaction => {
-    const ADMIN_ROLE_ID = '1542306776622309437';
 
+    // 1. CHAT INPUT COMMANDS
     if (interaction.isChatInputCommand()) {
         const commandLabel = interaction.commandName;
 
@@ -306,14 +216,10 @@ botClient.on('interactionCreate', async interaction => {
 
             try {
                 const userLedger = await Ledger.findOne({ discordId: targetUser.id });
-                if (!userLedger) {
-                    return interaction.editReply({ content: `❌ <@${targetUser.id}> does not have any records or points on file.` });
-                }
+                if (!userLedger) return interaction.editReply({ content: `❌ <@${targetUser.id}> does not have any records or points on file.` });
 
                 const points = userLedger.points || 0;
-                const coupons = userLedger.coupons && userLedger.coupons.length > 0 
-                    ? userLedger.coupons.map(c => `${c}% Off`).join(', ') 
-                    : 'None';
+                const coupons = userLedger.coupons && userLedger.coupons.length > 0 ? userLedger.coupons.map(c => `${c}% Off`).join(', ') : 'None';
                 const purchaseCount = userLedger.purchases ? userLedger.purchases.length : 0;
 
                 const profileEmbed = new EmbedBuilder()
@@ -340,28 +246,22 @@ botClient.on('interactionCreate', async interaction => {
 
             try {
                 let userLedger = await Ledger.findOne({ discordId: targetUser.id });
-                if (!userLedger) {
-                    userLedger = new Ledger({ discordId: targetUser.id, purchases: [], points: 0, coupons: [] });
-                }
+                if (!userLedger) userLedger = new Ledger({ discordId: targetUser.id, purchases: [], points: 0, coupons: [] });
                 
                 userLedger.coupons.push(discountPct);
                 await userLedger.save();
 
-                await interaction.editReply({ 
-                    content: `✅ Successfully gave a **${discountPct}% Off Coupon** to <@${targetUser.id}> for testing.` 
-                });
+                await interaction.editReply({ content: `✅ Successfully gave a **${discountPct}% Off Coupon** to <@${targetUser.id}>.` });
             } catch (err) {
                 console.error('Database error giving coupon:', err);
-                await interaction.editReply({ 
-                    content: '❌ Failed to update database. Please check the bot console for details.' 
-                });
+                await interaction.editReply({ content: '❌ Failed to update database.' });
             }
         }
 
         if (commandLabel === 'coupon-store') {
             const storeEmbed = new EmbedBuilder()
                 .setTitle('🎟️ Points & Coupon Store')
-                .setDescription(`Earn points automatically with every purchase you make! You can spend your saved points here on discount coupons for your next purchase (valid on items < $100).\n\n` +
+                .setDescription(`Earn points automatically with every purchase you make! You can spend your saved points here on discount coupons for your next purchase.\n\n` +
                                 `**Point Earnings:**\n` +
                                 `• $1 - $100 = 2 Points\n` +
                                 `• $101 - $500 = 4 Points\n` +
@@ -377,16 +277,15 @@ botClient.on('interactionCreate', async interaction => {
                     { label: '15% Discount Coupon', description: 'Costs 10 points', value: '15' }
                 ]);
 
-            const menuRow = new ActionRowBuilder().addComponents(couponMenu);
-            await interaction.channel.send({ embeds: [storeEmbed], components: [menuRow] });
+            await interaction.channel.send({ embeds: [storeEmbed], components: [new ActionRowBuilder().addComponents(couponMenu)] });
             await interaction.reply({ content: '✅ Coupon store deployed.', flags: 64 });
         }
 
-       if (commandLabel === 'setup-store') {
+        if (commandLabel === 'setup-store') {
             const storeType = interaction.options.getString('store_type');
             const selectedChannelOption = interaction.options.getChannel('channel');
 
-            if (storeType === 'account' || storeType === 'catalog') {
+            if (storeType === 'account') {
                 updateBotStatus(`🏷️ Deploying User Catalog`);
                 
                 const catalogEmbed = new EmbedBuilder()
@@ -394,8 +293,7 @@ botClient.on('interactionCreate', async interaction => {
                     .setDescription(`All accs are either owned by us, or within a VERY SMALL group of users we proxy for. All these users have been vetted to ensure acc safety.\n\n` +
                                     `🛡️ Every acc is new to com, unverified, and sniped by us (unless stated otherwise).\n\n` +
                                     `Users are sorted by price in USD. Select your budget within the dropdown to browse.\n\n` +
-                                    `**Payment Methods:** 🪙 Crypto, ✨ Clean Limiteds\n` +
-                                    `*(Extra fees apply for PayPal, CashApp, Apple Pay, Venmo)*`)
+                                    `**Payment Methods:** 🪙 Crypto, ✨ Clean Limiteds`)
                     .setColor(0x2B2D31);
 
                 const tierMenu = new StringSelectMenuBuilder()
@@ -412,7 +310,6 @@ botClient.on('interactionCreate', async interaction => {
                 return interaction.reply({ content: '✅ Username catalog deployed successfully!', flags: 64 });
             }
 
-            // --- SINGLE PRODUCT (FORUM) LOGIC ---
             const productTitle = interaction.options.getString('title');
             const productPrice = interaction.options.getNumber('price');
             const productKey = interaction.options.getString('item_id');
@@ -433,9 +330,7 @@ botClient.on('interactionCreate', async interaction => {
                 { name: '\u200B', value: '\u200B', inline: true }
             ];
 
-            if (robloxLink) {
-                embedFields.push({ name: 'Rolimons Link', value: `[View item](${robloxLink})`, inline: false });
-            }
+            if (robloxLink) embedFields.push({ name: 'Rolimons Link', value: `[View item](${robloxLink})`, inline: false });
 
             const listingEmbed = new EmbedBuilder()
                 .setTitle(`${productTitle}`)
@@ -444,12 +339,9 @@ botClient.on('interactionCreate', async interaction => {
                 .addFields(embedFields)
                 .setImage(thumbnailPic);
 
-            const fullLabel = `Purchase ${productTitle}`;
-            const safeLabel = fullLabel.length > 80 ? `${fullLabel.slice(0, 77)}...` : fullLabel;
-
             const buyActionBtn = new ButtonBuilder()
                 .setCustomId(`purchase_action|${productKey}|${productPrice}`)
-                .setLabel(safeLabel)
+                .setLabel(`Purchase ${productTitle}`.substring(0, 80))
                 .setStyle(ButtonStyle.Primary);
 
             await targetForum.threads.create({
@@ -459,6 +351,7 @@ botClient.on('interactionCreate', async interaction => {
 
             await interaction.reply({ content: `✅ Successfully created forum post for **${productTitle}**!`, flags: 64 });
         }
+
         if (commandLabel === 'my-codes') {
             const userLedger = await Ledger.findOne({ discordId: interaction.user.id });
             if (!userLedger) return interaction.reply({ content: "You don't have any purchase records on file.", flags: 64 });
@@ -466,8 +359,8 @@ botClient.on('interactionCreate', async interaction => {
             const history = userLedger.purchases;
             const points = userLedger.points || 0;
             const coupons = userLedger.coupons && userLedger.coupons.length > 0 ? userLedger.coupons.map(c => `${c}% Off`).join(', ') : 'None';
-
             const formattedItems = history.length > 0 ? history.map(entry => `• **${entry.item}**: \`${entry.code}\``).join('\n') : 'No items yet.';
+
             await interaction.reply({ 
                 content: `**Your Profile**\n⭐ Points: \`${points}\`\n🎟️ Coupons: \`${coupons}\`\n\n**Your Active Codes:**\n${formattedItems}`, 
                 flags: 64 
@@ -475,39 +368,28 @@ botClient.on('interactionCreate', async interaction => {
         }
 
         if (commandLabel === 'request-limited') {
-    const requestEmbed = new EmbedBuilder()
-        .setTitle('🔎 Need a Specific Limited?')
-        .setDescription(
-            `Can't find the item you're looking for? **We'll help track it down.**\n\n` +
-            `We can source **practically any Limited** upon request, including rare or hard-to-find items.\n\n` +
-            `⏱️ **Sourcing Time:** 12 Hours — 7 Days\n` +
-            `*Times may vary depending on availability and copies on the market.*\n\n` +
-            `💰 **30% Deposit Required**\n` +
-            `A 30% deposit of the agreed price is required to begin sourcing. **Fully refundable if the item cannot be located.**\n\n` +
-            `⭐ **Why Choose Us?**\n` +
-            `⚡ **Fast & Responsive** — Quick communication & updates.\n` +
-            `🔍 **Dedicated Sourcing** — We actively search for your item.\n` +
-            `🛡️ **Reliable Service** — Simple, straightforward process.\n` +
-            `📈 **Strong Track Record** — We've successfully sourced the vast majority of requested items.\n\n` +
-            `🎟️ **Start Sourcing**\n` +
-            `Open a ticket in <#1542544665969164308> and tell us what you're looking for!`
-        )
-        .setColor(0x3B82F6);
+            const requestEmbed = new EmbedBuilder()
+                .setTitle('🔎 Need a Specific Limited?')
+                .setDescription(
+                    `Can't find the item you're looking for? **We'll help track it down.**\n\n` +
+                    `We can source **practically any Limited** upon request.\n\n` +
+                    `⏱️ **Sourcing Time:** 12 Hours — 7 Days\n` +
+                    `💰 **30% Deposit Required** (Fully refundable if missing)\n\n` +
+                    `🎟️ **Start Sourcing:** Open a ticket in <#1542544665969164308>!`
+                )
+                .setColor(0x3B82F6);
 
-    await interaction.channel.send({ embeds: [requestEmbed] });
-    await interaction.reply({ content: '✅ Request Limited embed posted!', flags: 64 });
-}
+            await interaction.channel.send({ embeds: [requestEmbed] });
+            await interaction.reply({ content: '✅ Request Limited embed posted!', flags: 64 });
+        }
 
-        
         if (commandLabel === 'restock') {
             const itemId = interaction.options.getString('item_id');
             updateBotStatus(`📥 Restocking items for: ${itemId.toUpperCase()}`);
             const newCodes = interaction.options.getString('codes').split(',').map(c => c.trim());
 
             let itemRecord = await Inventory.findOne({ itemId });
-            if (!itemRecord) {
-                itemRecord = new Inventory({ itemId, codes: [] });
-            }
+            if (!itemRecord) itemRecord = new Inventory({ itemId, codes: [] });
 
             itemRecord.codes.push(...newCodes);
             await itemRecord.save();
@@ -518,274 +400,162 @@ botClient.on('interactionCreate', async interaction => {
         if (commandLabel === 'stock') {
             updateBotStatus(`📊 Checking inventory stock`);
             const allInventory = await Inventory.find({});
-            if (!allInventory || allInventory.length === 0) {
-                return interaction.reply({ content: 'No inventory records found in the database.'});
-            }
+            if (!allInventory || allInventory.length === 0) return interaction.reply({ content: 'No inventory records found.'});
 
             const stockList = allInventory.map(item => `• **${item.itemId}**: ${item.codes.length} code(s) remaining`).join('\n');
             await interaction.reply({ content: `📦 **Current Inventory Stock:**\n${stockList}`});
         }
 
         if (commandLabel === 'remove-stock') {
-    // 1. Get itemId first
-    const itemId = interaction.options.getString('item_id');
-    // 2. Then pass it to updateBotStatus
-    updateBotStatus(`🗑️ Removing stock for: ${itemId.toUpperCase()}`);
-    
-    const codesToRemove = interaction.options.getString('codes').split(',').map(c => c.trim());
+            const itemId = interaction.options.getString('item_id');
+            updateBotStatus(`🗑️ Removing stock for: ${itemId.toUpperCase()}`);
+            const codesToRemove = interaction.options.getString('codes').split(',').map(c => c.trim());
 
-    let itemRecord = await Inventory.findOne({ itemId });
-    if (!itemRecord) {
-        return interaction.reply({ content: `❌ Item \`${itemId}\` not found in database.`, flags: 64 });
-    }
+            let itemRecord = await Inventory.findOne({ itemId });
+            if (!itemRecord) return interaction.reply({ content: `❌ Item \`${itemId}\` not found in database.`, flags: 64 });
 
-    const originalLength = itemRecord.codes.length;
-    itemRecord.codes = itemRecord.codes.filter(code => !codesToRemove.includes(code));
-    await itemRecord.save();
+            const originalLength = itemRecord.codes.length;
+            itemRecord.codes = itemRecord.codes.filter(code => !codesToRemove.includes(code));
+            await itemRecord.save();
 
-    const removedCount = originalLength - itemRecord.codes.length;
-    await interaction.reply({ content: `🗑️ Removed ${removedCount} codes from \`${itemId}\`. Remaining stock: ${itemRecord.codes.length}`, flags: 64 });
-}
+            await interaction.reply({ content: `🗑️ Removed ${originalLength - itemRecord.codes.length} codes from \`${itemId}\`. Remaining: ${itemRecord.codes.length}`, flags: 64 });
+        }
 
         if (commandLabel === 'deliver') {
-    const targetUser = interaction.options.getUser('buyer');
-    const itemId = interaction.options.getString('item_id');
-    const itemPrice = interaction.options.getNumber('price') || 0;
+            const targetUser = interaction.options.getUser('buyer');
+            const itemId = interaction.options.getString('item_id');
+            const itemPrice = interaction.options.getNumber('price') || 0;
 
-    updateBotStatus(`📦 Delivering item: ${itemId.toUpperCase()}`);
-
-    if (!interaction.channel.name.startsWith('trade-')) {
-        return interaction.reply({ content: '🛑 This command can only be used inside a trade/order channel.', flags: 64 });
-    }
-    // ... a többi kódrészlet marad változatlan
+            if (!interaction.channel.name.startsWith('trade-')) return interaction.reply({ content: '🛑 Must be inside a trade channel.', flags: 64 });
 
             try {
                 const itemRecord = await Inventory.findOne({ itemId });
-                if (!itemRecord || itemRecord.codes.length === 0) {
-                    return interaction.reply({ content: `❌ Stock error: Item \`${itemId}\` is completely out of stock!`, flags: 64 });
-                }
+                if (!itemRecord || itemRecord.codes.length === 0) return interaction.reply({ content: `❌ Stock empty for \`${itemId}\`!`, flags: 64 });
 
                 const deliveredCode = itemRecord.codes.shift();
                 await itemRecord.save();
 
                 let userLedger = await Ledger.findOne({ discordId: targetUser.id });
-                if (!userLedger) {
-                    userLedger = new Ledger({ discordId: targetUser.id, purchases: [], points: 0, coupons: [] });
-                }
+                if (!userLedger) userLedger = new Ledger({ discordId: targetUser.id, purchases: [], points: 0, coupons: [] });
 
                 const pointsEarned = calculatePoints(itemPrice);
                 userLedger.purchases.push({ item: itemId, code: deliveredCode });
-                if (pointsEarned > 0) {
-                    userLedger.points += pointsEarned;
-                }
+                if (pointsEarned > 0) userLedger.points += pointsEarned;
                 await userLedger.save();
 
                 const deliveryEmbed = new EmbedBuilder()
                     .setTitle('🎁 Order Delivery')
-                    .setDescription(`Here is your requested code for **${itemId.toUpperCase()}**:\n\`\`\`${deliveredCode}\`\`\``)
-                    .setColor(0x00FF00)
-                    .setFooter({ text: 'Thank you for your business!' })
-                    .setTimestamp();
+                    .setDescription(`Code for **${itemId.toUpperCase()}**:\n\`\`\`${deliveredCode}\`\`\``)
+                    .setColor(0x00FF00);
 
-                let pointNotice = pointsEarned > 0 ? `\n⭐ You earned **${pointsEarned} points** for this order!` : '';
-
-                await interaction.reply({ content: `✅ Successfully pulled code for ${targetUser.tag} and sent it to the channel.`, flags: 64 });
-                
-                await interaction.channel.send({
-                    content: `Hey <@${targetUser.id}>! Here is your delivery:${pointNotice}`,
-                    embeds: [deliveryEmbed]
-                });
-                await interaction.channel.send(`🙏 Thank you again for your business, <@${targetUser.id}>! If you have a moment, please drop a vouch in <#1542340439166820434>. We'd really appreciate it!`);
+                await interaction.reply({ content: `✅ Code pulled and sent to channel.`, flags: 64 });
+                await interaction.channel.send({ content: `Hey <@${targetUser.id}>! Here is your delivery:`, embeds: [deliveryEmbed] });
             } catch (err) {
-                console.error('Error in /deliver command:', err);
-                await interaction.reply({ content: 'An error occurred while attempting to deliver the code.', flags: 64 });
+                console.error('Error delivering code:', err);
+                await interaction.reply({ content: 'Error delivering code.', flags: 64 });
             }
         }
 
         if (commandLabel === 'close') {
-            updateBotStatus(`CloseOperation: ${interaction.options.getString('item_id')?.toUpperCase() || 'Unknown Item'}`);
             const status = interaction.options.getString('status');
             const method = interaction.options.getString('method') || 'Unknown Method';
             const price = interaction.options.getNumber('price');
             const buyer = interaction.options.getUser('buyer');
             const channel = interaction.channel;
 
-            if (!channel.name.startsWith('trade-')) return interaction.reply({ content: '🛑 This command can only be used inside a trade channel.', flags: 64 });
+            if (!channel.name.startsWith('trade-')) return interaction.reply({ content: '🛑 Must be inside a trade channel.', flags: 64 });
 
-            await interaction.reply({ content: '🔒 Processing order closure and cleaning up channel...', flags: 64 });
+            await interaction.reply({ content: '🔒 Closing channel...', flags: 64 });
 
             if (status === 'success') {
                 if (buyer && price) {
                     let userLedger = await Ledger.findOne({ discordId: buyer.id });
                     if (!userLedger) userLedger = new Ledger({ discordId: buyer.id, purchases: [], points: 0, coupons: [] });
-                    
-                    const earned = calculatePoints(price);
-                    userLedger.points += earned;
+                    userLedger.points += calculatePoints(price);
                     await userLedger.save();
                 }
 
-                const PUBLIC_LOG_CHANNEL_ID = '1542337221791711324';
-                const logChannel = await interaction.guild.channels.fetch(PUBLIC_LOG_CHANNEL_ID).catch(() => null);
-
+                const logChannel = await interaction.guild.channels.fetch('1542337221791711324').catch(() => null);
                 if (logChannel) {
-                    const channelNameParts = channel.name.split('-');
-                    let parsedItem = channelNameParts.length > 1 ? channelNameParts[1].toUpperCase() : 'STORE ITEM';
-
                     const receiptEmbed = new EmbedBuilder()
                         .setTitle('🧾 New Successful Sale')
-                        .setDescription(`An item has been successfully purchased and delivered securely.`)
                         .setColor(0x00FF00)
                         .addFields(
-                            { name: '📦 Item Sold', value: `\`${parsedItem}\``, inline: true },
+                            { name: '📦 Item Sold', value: `\`${channel.name}\``, inline: true },
                             { name: '💳 Payment Method', value: `\`${method}\``, inline: true }
                         )
                         .setTimestamp();
-
                     await logChannel.send({ embeds: [receiptEmbed] });
                 }
             }
 
-            setTimeout(async () => {
-                await channel.delete().catch(() => {});
-            }, 4000);
+            setTimeout(() => channel.delete().catch(() => {}), 4000);
         }
     }
 
-    // --- BUTTON & SELECT MENU INTERACTION HANDLERS ---
-    
-    // 1. Coupon Purchase Logic
-    // --- BUTTON & SELECT MENU INTERACTION HANDLERS ---
-    
-    // --- USER STOCK CATALOG NAVIGATION (PASTE HERE) ---
-    if (interaction.isStringSelectMenu() && interaction.customId === 'user_tier_select') {
-        const tier = interaction.values[0];
-        let tierName = '';
-        let subCategories = [];
+    // 2. BUTTON INTERACTION ROUTER
+    if (interaction.isButton()) {
+        const customId = interaction.customId;
 
-        if (tier === 'high_tier') {
-            tierName = 'High Tier (1000+)';
-            subCategories = [
-                { label: 'Rare Words', value: 'cat_rare_words', description: 'Real dictionary words' },
-                { label: '3 Letters', value: 'cat_3_letters', description: 'Extremely rare 3L names' }
-            ];
-        } else if (tier === 'mid_tier') {
-            tierName = 'Mid Tier (200-1000)';
-            subCategories = [
-                { label: '4 Letters', value: 'cat_4_letters', description: 'View 4 Letters accounts' },
-                { label: 'Semi-Rare Words', value: 'cat_semi_rare', description: 'Common names and verbs' }
-            ];
-        } else {
-            tierName = 'Low Tier (0-200)';
-            subCategories = [
-                { label: 'Swaps', value: 'cat_swaps', description: 'View Swaps accounts' },
-                { label: 'Uncensors', value: 'cat_uncensors', description: 'View Uncensors accounts' },
-                { label: 'ID Snipes', value: 'cat_id_snipes', description: 'View ID Snipes accounts' },
-                { label: '5 Digits', value: 'cat_5_digits', description: 'View 5 Digits accounts' }
-            ];
+        // Buy Store Listing Action
+        if (customId.startsWith('purchase_action|')) {
+            await interaction.deferReply({ flags: 64 });
+            const [, productKey, productPrice] = customId.split('|');
+            const sanitizedUser = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+            try {
+                const tradeChannel = await interaction.guild.channels.create({
+                    name: `trade-${productKey.toLowerCase()}-${sanitizedUser}`.substring(0, 100),
+                    type: ChannelType.GuildText,
+                    permissionOverwrites: [
+                        { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+                        { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                        { id: botClient.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                        { id: ADMIN_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
+                    ]
+                });
+
+                let userLedger = await Ledger.findOne({ discordId: interaction.user.id });
+
+                if (userLedger && userLedger.coupons && userLedger.coupons.length > 0) {
+                    const couponEmbed = new EmbedBuilder()
+                        .setTitle('🎟️ Discount Coupon Available!')
+                        .setDescription(`You have available coupons! Would you like to apply a coupon to this purchase?`)
+                        .setColor(0xFFD700);
+
+                    const couponRow = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId(`use_coupon_yes|${productKey}|${productPrice}`).setLabel('Use Coupon').setStyle(ButtonStyle.Success),
+                        new ButtonBuilder().setCustomId(`use_coupon_no|${productKey}|${productPrice}`).setLabel('Skip Coupon').setStyle(ButtonStyle.Secondary)
+                    );
+
+                    await tradeChannel.send({ content: `<@${interaction.user.id}>`, embeds: [couponEmbed], components: [couponRow] });
+                } else {
+                    const checkoutEmbed = new EmbedBuilder()
+                        .setTitle('🛍️ Secure Checkout Portal')
+                        .setDescription(`Order for **${productKey.toUpperCase()}**.\nTotal Price: \`$${productPrice} USD\``)
+                        .setColor(0x5865F2);
+
+                    await tradeChannel.send({
+                        content: `<@${interaction.user.id}>`,
+                        embeds: [checkoutEmbed],
+                        components: [generatePaymentMenu(productKey, productPrice, tradeChannel.id), getCancelButtonRow()]
+                    });
+                }
+
+                await interaction.editReply({ content: `✅ Order channel created: <#${tradeChannel.id}>` });
+            } catch (err) {
+                console.error('Channel creation error:', err);
+                await interaction.editReply({ content: '❌ Failed to create trade channel.' });
+            }
         }
 
-        const subcatEmbed = new EmbedBuilder()
-            .setTitle(`📂 R0BLOX User Stock - ${tierName}`)
-            .setDescription('Before purchase read the above and #tos.\n\nSelect a subcategory from the dropdown below to view available accounts.\n\n**Total Accounts:** 564')
-            .setColor(0x5865F2);
-
-        const subMenu = new StringSelectMenuBuilder()
-            .setCustomId(`user_subcat_select|${tier}`)
-            .setPlaceholder('Select a subcategory...')
-            .addOptions(subCategories);
-
-        await interaction.reply({ embeds: [subcatEmbed], components: [new ActionRowBuilder().addComponents(subMenu)], flags: 64 });
-    }
-
-    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('user_subcat_select|')) {
-        const subCat = interaction.values[0];
-        let catTitle = subCat.replace('cat_', '').replace(/_/g, ' ').toUpperCase();
-        let accountList = '';
-
-        // Mock stock logic (can be expanded to pull from MongoDB later)
-        switch(subCat) {
-            case 'cat_5_digits':
-                accountList = `\`@03679\` - **$10**\n\`@03691\` - **$10**\n\`@03926\` - **$10**`;
-                break;
-            case 'cat_4_letters':
-                accountList = `\`@abcd\` - **$250**\n\`@xyza\` - **$220**`;
-                break;
-            default:
-                accountList = `*Inventory is currently being audited... check back shortly!*`;
-        }
-
-        const listEmbed = new EmbedBuilder()
-            .setTitle(`📜 R0BLOX User Stock - ${catTitle}`)
-            .setDescription(`Before purchase read the above and #tos.\nAll listed here accounts are unverified with no claimed billing.\n\n${accountList}`)
-            .setColor(0x2B2D31);
-
-        const ticketBtn = new ButtonBuilder()
-            .setCustomId(`create_user_ticket|${catTitle}`)
-            .setLabel('Create Ticket')
-            .setStyle(ButtonStyle.Success)
-            .setEmoji('🎫');
-
-        await interaction.update({ 
-            embeds: [listEmbed], 
-            components: [
-                interaction.message.components[0], 
-                new ActionRowBuilder().addComponents(ticketBtn)
-            ] 
-        });
-    }
-
-    if (interaction.isButton() && interaction.customId.startsWith('create_user_ticket|')) {
-        await interaction.deferReply({ flags: 64 });
-        const [, categoryName] = interaction.customId.split('|');
-        const guild = interaction.guild;
-        const sanitizedUsername = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
-        const ADMIN_ROLE_ID = '1542306776622309437'; 
-
-        try {
-            const ticketChannel = await guild.channels.create({
-                name: `buy-${categoryName.toLowerCase().replace(/\s/g, '-')}-${sanitizedUsername}`.substring(0, 100),
-                type: ChannelType.GuildText,
-                permissionOverwrites: [
-                    { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-                    { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
-                    { id: botClient.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-                    { id: ADMIN_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
-                ]
-            });
-
-            const welcomeEmbed = new EmbedBuilder()
-                .setTitle('🎫 Account Purchase Ticket')
-                .setDescription(`Welcome <@${interaction.user.id}>!\n\nYou requested to buy a **${categoryName}** account.\n\nPlease state exactly which username you'd like to purchase and your preferred payment method.`)
-                .setColor(0x5865F2);
-
-            const closeBtn = new ButtonBuilder().setCustomId('close_order').setLabel('Close Ticket').setStyle(ButtonStyle.Danger).setEmoji('🔒');
-
-            await ticketChannel.send({ 
-                content: `<@${interaction.user.id}> | <@&${ADMIN_ROLE_ID}>`, 
-                embeds: [welcomeEmbed], 
-                components: [new ActionRowBuilder().addComponents(closeBtn)] 
-            });
-
-            await interaction.editReply({ content: `✅ Ticket created: <#${ticketChannel.id}>` });
-        } catch (err) {
-            console.error('Ticket creation error:', err);
-            await interaction.editReply({ content: '❌ Failed to create ticket channel. Check bot permissions.' });
-        }
-    }
-    // --- END USER STOCK CATALOG NAVIGATION ---
-
-    // 1. Coupon Purchase Logic (This was already here in your file)
-    if (interaction.isStringSelectMenu() && interaction.customId === 'buy_coupon') {
-
-        // 3. User clicked Yes to use a coupon
-        if (interaction.customId.startsWith('use_coupon_yes|')) {
-            const [, productKey, productPrice] = interaction.customId.split('|');
+        if (customId.startsWith('use_coupon_yes|')) {
+            const [, productKey, productPrice] = customId.split('|');
             let userLedger = await Ledger.findOne({ discordId: interaction.user.id });
             
             const uniqueCoupons = [...new Set(userLedger.coupons)];
             const options = uniqueCoupons.map(pct => ({
                 label: `Apply ${pct}% Off Coupon`,
-                description: `Reduces price to $${(productPrice * (1 - (pct/100))).toFixed(2)}`,
                 value: pct.toString()
             }));
 
@@ -795,168 +565,210 @@ botClient.on('interactionCreate', async interaction => {
                 .addOptions(options);
 
             await interaction.update({
-                embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setDescription('Please select the coupon you wish to apply from the dropdown below:')],
+                embeds: [new EmbedBuilder().setTitle('🎟️ Select Coupon').setDescription('Choose your coupon below:')],
                 components: [new ActionRowBuilder().addComponents(selectMenu), getCancelButtonRow()]
             });
         }
 
-        // 4. User clicked No to coupon
-if (interaction.customId.startsWith('use_coupon_no|')) {
-    const [, productKey, productPrice] = interaction.customId.split('|');
-    
-    // Restore the actual text and title for the checkout embed
-    const polishedEmbed = new EmbedBuilder()
-        .setTitle('🛍️ Secure Checkout Portal')
-        .setDescription(`Welcome <@${interaction.user.id}>! You are initializing an order for **${productKey.toUpperCase()}**.\n\n` +
-                        `• **Total Price:** \`$${productPrice} USD\`\n` +
-                        `• **Status:** \`Awaiting Payment Selection\`\n\n` +
-                        `Please make your selection from the dropdown menu below.`)
-        .setColor(0x5865F2);
+        if (customId.startsWith('use_coupon_no|')) {
+            const [, productKey, productPrice] = customId.split('|');
+            const polishedEmbed = new EmbedBuilder()
+                .setTitle('🛍️ Secure Checkout Portal')
+                .setDescription(`Order for **${productKey.toUpperCase()}**.\nTotal Price: \`$${productPrice} USD\``)
+                .setColor(0x5865F2);
 
-    // interaction.channelId is slightly safer than interaction.channel.id in v14 just in case the channel isn't fully cached!
-    await interaction.update({ 
-        embeds: [polishedEmbed], 
-        components: [
-            generatePaymentMenu(productKey, productPrice, interaction.channelId), 
-            getCancelButtonRow()
-        ] 
-    });
-}
+            await interaction.update({ 
+                embeds: [polishedEmbed], 
+                components: [generatePaymentMenu(productKey, productPrice, interaction.channelId), getCancelButtonRow()] 
+            });
+        }
 
-        // ---> PASTE THE NEW CODE RIGHT HERE <---
-        // 7. Open the Transaction Modal
-        if (interaction.customId.startsWith('open_tx_modal|')) {
-            const [, productKey] = interaction.customId.split('|');
-            
-            const txModal = new ModalBuilder()
-                .setCustomId(`submit_tx_form|${productKey}`)
-                .setTitle('Transaction Proof');
-                
-            const txInput = new TextInputBuilder()
-                .setCustomId('tx_hash_input')
-                .setLabel('Transaction Hash')
-                .setStyle(TextInputStyle.Short)
-                .setPlaceholder('Paste the transaction hash here...')
-                .setRequired(true);
-                
+        if (customId.startsWith('open_tx_modal|')) {
+            const [, productKey] = customId.split('|');
+            const txModal = new ModalBuilder().setCustomId(`submit_tx_form|${productKey}`).setTitle('Transaction Proof');
+            const txInput = new TextInputBuilder().setCustomId('tx_hash_input').setLabel('Transaction Hash').setStyle(TextInputStyle.Short).setRequired(true);
             txModal.addComponents(new ActionRowBuilder().addComponents(txInput));
-            
-            // showModal acknowledges the interaction, preventing the timeout error
             await interaction.showModal(txModal);
         }
-        
-    } // <-- THIS BRACE CLOSES THE `if (interaction.isButton())` BLOCK
 
-    // 5. User selected a coupon from the dropdown
-    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('apply_coupon|')) {
-        await interaction.deferUpdate();
-        const [, productKey, originalPrice] = interaction.customId.split('|');
-        const discountPct = parseInt(interaction.values[0]);
-        
-        let userLedger = await Ledger.findOne({ discordId: interaction.user.id });
-        const couponIndex = userLedger.coupons.indexOf(discountPct);
-        
-        if (couponIndex > -1) {
-            userLedger.coupons.splice(couponIndex, 1);
+        if (customId === 'close_order') {
+            await interaction.reply({ content: '🗑️ Order cancelled. Channel closing...' });
+            setTimeout(() => interaction.channel.delete().catch(() => {}), 2000);
+        }
+
+        if (customId.startsWith('create_user_ticket|')) {
+            await interaction.deferReply({ flags: 64 });
+            const [, categoryName] = customId.split('|');
+            const sanitizedUsername = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+            try {
+                const ticketChannel = await interaction.guild.channels.create({
+                    name: `buy-${categoryName.toLowerCase().replace(/\s/g, '-')}-${sanitizedUsername}`.substring(0, 100),
+                    type: ChannelType.GuildText,
+                    permissionOverwrites: [
+                        { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+                        { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                        { id: botClient.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                        { id: ADMIN_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
+                    ]
+                });
+
+                const welcomeEmbed = new EmbedBuilder()
+                    .setTitle('🎫 Account Purchase Ticket')
+                    .setDescription(`Welcome <@${interaction.user.id}>!\n\nRequested Category: **${categoryName}**`)
+                    .setColor(0x5865F2);
+
+                await ticketChannel.send({ 
+                    content: `<@${interaction.user.id}> | <@&${ADMIN_ROLE_ID}>`, 
+                    embeds: [welcomeEmbed], 
+                    components: [getCancelButtonRow()] 
+                });
+
+                await interaction.editReply({ content: `✅ Ticket created: <#${ticketChannel.id}>` });
+            } catch (err) {
+                console.error('Ticket error:', err);
+                await interaction.editReply({ content: '❌ Failed to create ticket.' });
+            }
+        }
+    }
+
+    // 3. SELECT MENU INTERACTION ROUTER
+    if (interaction.isStringSelectMenu()) {
+        const customId = interaction.customId;
+
+        if (customId === 'buy_coupon') {
+            await interaction.deferReply({ flags: 64 });
+            const discountPct = parseInt(interaction.values[0]);
+            const cost = discountPct === 10 ? 5 : 10;
+
+            let userLedger = await Ledger.findOne({ discordId: interaction.user.id });
+            if (!userLedger || (userLedger.points || 0) < cost) {
+                return interaction.editReply({ content: `❌ Insufficient points! You need **${cost} points** for this coupon.` });
+            }
+
+            userLedger.points -= cost;
+            userLedger.coupons.push(discountPct);
             await userLedger.save();
+
+            await interaction.editReply({ content: `🎉 **Redeemed!** Spent **${cost} points** for a **${discountPct}% Off Coupon**.` });
+        }
+
+        if (customId.startsWith('apply_coupon|')) {
+            await interaction.deferUpdate();
+            const [, productKey, originalPrice] = customId.split('|');
+            const discountPct = parseInt(interaction.values[0]);
             
-            const newPrice = (parseFloat(originalPrice) * (1 - (discountPct / 100))).toFixed(2);
+            let userLedger = await Ledger.findOne({ discordId: interaction.user.id });
+            const couponIndex = userLedger.coupons.indexOf(discountPct);
+            
+            if (couponIndex > -1) {
+                userLedger.coupons.splice(couponIndex, 1);
+                await userLedger.save();
+                
+                const newPrice = (parseFloat(originalPrice) * (1 - (discountPct / 100))).toFixed(2);
+                const discountedEmbed = new EmbedBuilder()
+                    .setTitle('🛍️ Secure Checkout Portal (Discount Applied)')
+                    .setDescription(`Order for **${productKey.toUpperCase()}**\nNew Price: \`$${newPrice} USD\` 🎉`)
+                    .setColor(0x00FF00);
 
-            const discountedEmbed = new EmbedBuilder()
-                .setTitle('🛍️ Secure Checkout Portal (Discount Applied)')
-                .setDescription(`Welcome <@${interaction.user.id}>! You are initializing an order for **${productKey.toUpperCase()}**.\n\n` +
-                                `• **Original Price:** ~~\`$${originalPrice} USD\`~~\n` +
-                                `• **Discounted Price:** \`$${newPrice} USD\` 🎉\n` +
-                                `• **Status:** \`Awaiting Payment Selection\`\n\n` +
-                                `Please make your selection from the dropdown menu below.`)
-                .setColor(0x00FF00);
+                await interaction.editReply({ embeds: [discountedEmbed], components: [generatePaymentMenu(productKey, newPrice, interaction.channel.id), getCancelButtonRow()] });
+            }
+        }
 
-            await interaction.editReply({ embeds: [discountedEmbed], components: [generatePaymentMenu(productKey, newPrice, interaction.channel.id), getCancelButtonRow()] });
+        if (customId.startsWith('payment_select|')) {
+            const [, productKey, productPrice, channelId] = customId.split('|');
+            const selectedValue = interaction.values[0];
+            const orderChannel = await interaction.guild.channels.fetch(channelId);
+
+            if (selectedValue === 'select_stripe') {
+                await interaction.deferUpdate();
+
+                const stripeSession = await stripe.checkout.sessions.create({
+                    payment_method_types: ['card'],
+                    line_items: [{
+                        price_data: {
+                            currency: 'usd',
+                            product_data: { name: productKey.toUpperCase() },
+                            unit_amount: Math.round(parseFloat(productPrice) * 100),
+                        },
+                        quantity: 1,
+                    }],
+                    mode: 'payment',
+                    success_url: 'https://roblox.com/redeem',
+                    cancel_url: 'https://roblox.com/redeem',
+                    metadata: {
+                        discord_user_id: interaction.user.id,
+                        item_id: productKey,
+                        channel_id: orderChannel.id
+                    }
+                });
+
+                const checkoutEmbed = new EmbedBuilder()
+                    .setTitle('💳 Stripe Card Checkout')
+                    .setDescription(`Click below to pay safely. Delivery is automated once paid.`)
+                    .setColor(0x635BFF);
+
+                const payBtn = new ButtonBuilder().setLabel(`Pay $${productPrice} via Stripe`).setURL(stripeSession.url).setStyle(ButtonStyle.Link);
+                await orderChannel.send({ embeds: [checkoutEmbed], components: [new ActionRowBuilder().addComponents(payBtn, getCancelButtonRow().components[0])] });
+                await interaction.message.delete().catch(() => {});
+            }
+
+            if (selectedValue === 'select_crypto') {
+                await interaction.deferUpdate();
+                const amounts = await getCryptoAmounts(parseFloat(productPrice));
+
+                const cryptoEmbed = new EmbedBuilder()
+                    .setTitle('🪙 Crypto Payment Gateway')
+                    .setDescription(`Send exact live amount for **$${productPrice} USD**:`)
+                    .setColor(0xF7931A)
+                    .addFields(
+                        { name: '🔹 ETH', value: `\`\`\`${amounts.eth} ETH\`\`\`\n\`\`\`0x42d01fE1f89C6cDE28ef7a34Ef5A7B452eD6B271\`\`\`` },
+                        { name: '🟣 LTC', value: `\`\`\`${amounts.ltc} LTC\`\`\`\n\`\`\`MWSeYJ3qgm3j5yYGGFimu5ebSzHA9oUvBy\`\`\`` },
+                        { name: '🟠 BTC', value: `\`\`\`${amounts.btc} BTC\`\`\`\n\`\`\`34hRphphvMtvqiWPawAESR1bxkfvUoFNhh\`\`\`` },
+                        { name: '🟢 SOL', value: `\`\`\`${amounts.sol} SOL\`\`\`\n\`\`\`222P8wKAC2s2UcfNyANYre8yVKjU1c3C3MA7mYqK92ZB\`\`\`` }
+                    );
+
+                const submitTxBtn = new ButtonBuilder().setCustomId(`open_tx_modal|${productKey}`).setLabel('Submit Transaction Hash').setStyle(ButtonStyle.Success);
+                await orderChannel.send({ embeds: [cryptoEmbed], components: [new ActionRowBuilder().addComponents(submitTxBtn, getCancelButtonRow().components[0])] });
+                await interaction.message.delete().catch(() => {});
+            }
+        }
+
+        if (customId === 'user_tier_select') {
+            const tier = interaction.values[0];
+            const subCategories = tier === 'high_tier' 
+                ? [{ label: 'Rare Words', value: 'cat_rare_words' }] 
+                : tier === 'mid_tier' 
+                ? [{ label: '4 Letters', value: 'cat_4_letters' }] 
+                : [{ label: '5 Digits', value: 'cat_5_digits' }];
+
+            const subMenu = new StringSelectMenuBuilder().setCustomId(`user_subcat_select|${tier}`).setPlaceholder('Select subcategory...').addOptions(subCategories);
+            await interaction.reply({ embeds: [new EmbedBuilder().setTitle('📂 Select Category').setColor(0x5865F2)], components: [new ActionRowBuilder().addComponents(subMenu)], flags: 64 });
+        }
+
+        if (customId.startsWith('user_subcat_select|')) {
+            const subCat = interaction.values[0];
+            const ticketBtn = new ButtonBuilder().setCustomId(`create_user_ticket|${subCat}`).setLabel('Create Ticket').setStyle(ButtonStyle.Success);
+            await interaction.update({ embeds: [new EmbedBuilder().setTitle(`📜 ${subCat.toUpperCase()}`).setColor(0x2B2D31)], components: [new ActionRowBuilder().addComponents(ticketBtn)] });
         }
     }
 
-    // 6. Payment Method Selection (Stripe / Crypto)
-    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('payment_select|')) {
-        const [, productKey, productPrice, channelId] = interaction.customId.split('|');
-        const selectedValue = interaction.values[0];
-        const orderChannel = await interaction.guild.channels.fetch(channelId);
-
-        if (selectedValue === 'select_stripe') {
-            updateBotStatus(`💳 Processing Stripe checkout`);
-            await interaction.deferUpdate();
-
-            const stripeSession = await stripe.checkout.sessions.create({
-                payment_method_types: ['card'],
-                line_items: [{
-                    price_data: {
-                        currency: 'usd',
-                        product_data: { name: productKey.toUpperCase().replace('_', ' ') },
-                        unit_amount: Math.round(parseFloat(productPrice) * 100),
-                    },
-                    quantity: 1,
-                }],
-                mode: 'payment',
-                success_url: 'https://roblox.com/redeem',
-                cancel_url: 'https://roblox.com/redeem',
-                metadata: {
-                    discord_user_id: interaction.user.id,
-                    item_id: productKey,
-                    guild_id: interaction.guild.id,
-                    channel_id: orderChannel.id
-                }
-            });
-
-            const checkoutEmbed = new EmbedBuilder()
-                .setTitle('💳 Stripe Card Checkout')
-                .setDescription(`Click the secure link below to open your Stripe invoice.\n\n*Your code will post here automatically once paid.*`)
-                .setColor(0x635BFF);
-
-            const payButton = new ButtonBuilder().setLabel(`Pay $${productPrice} via Stripe`).setURL(stripeSession.url).setStyle(ButtonStyle.Link);
-            const cancelBtn = new ButtonBuilder().setCustomId('close_order').setLabel('Cancel Order').setStyle(ButtonStyle.Danger).setEmoji('🗑️');
-
-            await orderChannel.send({ embeds: [checkoutEmbed], components: [new ActionRowBuilder().addComponents(payButton, cancelBtn)] });
-            await interaction.message.delete().catch(() => {});
-        }
-
-        if (selectedValue === 'select_crypto') {
-            await interaction.deferUpdate();
-            const amounts = await getCryptoAmounts(parseFloat(productPrice));
-
-            const cryptoEmbed = new EmbedBuilder()
-                .setTitle('🪙 Cryptocurrency Payment Gateway')
-                .setDescription(`Target item: **${productKey.toUpperCase()}**\nEquivalent Value: **$${productPrice} USD**\n\nSend the exact live amount below to one of our official addresses:`)
-                .setColor(0xF7931A)
-                .addFields(
-                    { name: '🔹 Ethereum (ETH)', value: `\`\`\`${amounts.eth} ETH\`\`\`\n\`\`\`0x42d01fE1f89C6cDE28ef7a34Ef5A7B452eD6B271\`\`\``, inline: false },
-                    { name: '🟣 Litecoin (LTC)', value: `\`\`\`${amounts.ltc} LTC\`\`\`\n\`\`\`MWSeYJ3qgm3j5yYGGFimu5ebSzHA9oUvBy\`\`\``, inline: false },
-                    { name: '🟠 Bitcoin (BTC)', value: `\`\`\`${amounts.btc} BTC\`\`\`\n\`\`\`34hRphphvMtvqiWPawAESR1bxkfvUoFNhh\`\`\``, inline: false },
-                    { name: '🟢 Solana (SOL)', value: `\`\`\`${amounts.sol} SOL\`\`\`\n\`\`\`222P8wKAC2s2UcfNyANYre8yVKjU1c3C3MA7mYqK92ZB\`\`\``, inline: false }
-                )
-                .setFooter({ text: 'After completing payment, click the button below to submit your transaction hash.' });
-
-            const submitTxBtn = new ButtonBuilder().setCustomId(`open_tx_modal|${productKey}`).setLabel('Submit Transaction Hash').setStyle(ButtonStyle.Success).setEmoji('📝');
-            const cancelBtn = new ButtonBuilder().setCustomId('close_order').setLabel('Cancel Order').setStyle(ButtonStyle.Danger).setEmoji('🗑️');
-
-            await orderChannel.send({ embeds: [cryptoEmbed], components: [new ActionRowBuilder().addComponents(submitTxBtn, cancelBtn)] });
-            await interaction.message.delete().catch(() => {});
-        }
-    }
+    // 4. MODAL SUBMIT ROUTER
     if (interaction.isModalSubmit() && interaction.customId.startsWith('submit_tx_form|')) {
         const [, productKey] = interaction.customId.split('|');
         const userTxProof = interaction.fields.getTextInputValue('tx_hash_input');
-        const ADMIN_ROLE_ID = '1542306776622309437';
 
         const confirmationEmbed = new EmbedBuilder()
             .setTitle('📥 Transaction Submitted')
-            .setDescription(`Thank you! Your transaction proof has been logged for review.\n\n**Item:** \`${productKey}\`\n**Submitted Hash:**\n\`\`\`${userTxProof}\`\`\``)
-            .setColor(0x00FF00).setTimestamp();
+            .setDescription(`Item: \`${productKey}\`\nHash:\n\`\`\`${userTxProof}\`\`\``)
+            .setColor(0x00FF00);
 
         await interaction.reply({ embeds: [confirmationEmbed] });
-        await interaction.channel.send(`🔔 <@&${ADMIN_ROLE_ID}>, <@${interaction.user.id}> has submitted a crypto transaction proof for **${productKey}**! Please verify and deliver the code manually.`);
+        await interaction.channel.send(`🔔 <@&${ADMIN_ROLE_ID}>, <@${interaction.user.id}> submitted transaction proof for **${productKey}**!`);
     }
 });
 
-// Initialize Services
+// START SERVER & LOGIN
 const port = process.env.PORT || 3000;
-webApp.listen(port, () => console.log(`HTTP Webhook Listener running on port ${port}`));
+webApp.listen(port, () => console.log(`HTTP Listener running on port ${port}`));
 botClient.login(process.env.DISCORD_TOKEN);

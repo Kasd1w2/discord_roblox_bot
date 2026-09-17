@@ -669,7 +669,7 @@ botClient.on('interactionCreate', async interaction => {
 
             try {
                 const ticketChannel = await interaction.guild.channels.create({
-                    name: `buy-${categoryName.toLowerCase().replace(/\s/g, '-')}-${sanitizedUsername}`.substring(0, 100),
+                    name: `trade-${categoryName.toLowerCase().replace(/\s/g, '-')}-${sanitizedUsername}`.substring(0, 100),
                     type: ChannelType.GuildText,
                     permissionOverwrites: [
                         { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
@@ -768,7 +768,7 @@ botClient.on('interactionCreate', async interaction => {
 
             try {
                 const ticketChannel = await interaction.guild.channels.create({
-                    name: `buy-${selectedUsername.toLowerCase()}-${sanitizedBuyer}`.substring(0, 100),
+                    name: `trade-${selectedUsername.toLowerCase()}-${sanitizedBuyer}`.substring(0, 100),
                     type: ChannelType.GuildText,
                     permissionOverwrites: [
                         { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },

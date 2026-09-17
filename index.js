@@ -3,14 +3,14 @@ const express = require('express');
 const mongoose = require('mongoose');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const axios = require('axios');
-const { 
-    Client, 
-    GatewayIntentBits, 
-    REST, 
-    Routes, 
-    EmbedBuilder, 
-    ActionRowBuilder, 
-    ButtonBuilder, 
+const {
+    Client,
+    GatewayIntentBits,
+    REST,
+    Routes,
+    EmbedBuilder,
+    ActionRowBuilder,
+    ButtonBuilder,
     ButtonStyle,
     StringSelectMenuBuilder,
     ModalBuilder,
@@ -107,13 +107,13 @@ mongoose.connect(process.env.MONGO_URI)
     .catch(err => console.error('MongoDB connection error:', err));
 
 const webApp = express();
-const botClient = new Client({ 
+const botClient = new Client({
     intents: [
-        GatewayIntentBits.Guilds, 
-        GatewayIntentBits.GuildMessages, 
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
         GatewayIntentBits.GuildMessageReactions,
         GatewayIntentBits.MessageContent
-    ] 
+    ]
 });
 
 // --- HELPER FUNCTIONS ---
@@ -136,7 +136,7 @@ async function getCryptoAmounts(usdPrice) {
             axios.get('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT'),
             axios.get('https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT')
         ]);
-        
+
         return {
             eth: (usdPrice / parseFloat(eth.data.price)).toFixed(6),
             ltc: (usdPrice / parseFloat(ltc.data.price)).toFixed(4),
@@ -199,11 +199,11 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
             updateBotStatus(`💳 Payment received! Auto-delivering ${targetItemId.toUpperCase()}...`);
 
             const itemRecord = await Inventory.findOne({ itemId: targetItemId });
-            
+
             if (!itemRecord || itemRecord.codes.length === 0) {
                 console.error(`CRITICAL: User ${buyerDiscordId} paid for ${targetItemId} but stock is empty!`);
                 updateBotStatus(`⚠️ ERROR: Stock empty for ${targetItemId.toUpperCase()}!`);
-                return res.status(200).json({ received: true }); 
+                return res.status(200).json({ received: true });
             }
 
             const purchasedCode = itemRecord.codes.shift();
@@ -213,7 +213,7 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
             if (!userLedger) {
                 userLedger = new Ledger({ discordId: buyerDiscordId, purchases: [], points: 0, coupons: [] });
             }
-            
+
             const pointsEarned = calculatePoints(usdPricePaid);
             userLedger.purchases.push({ item: targetItemId, code: purchasedCode });
             userLedger.points += pointsEarned;
@@ -237,7 +237,7 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
             console.error('Error handling checkout completion webhook:', dbErr);
         }
     }
-    
+
     res.status(200).json({ received: true });
 });
 
@@ -245,12 +245,12 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 botClient.once('clientReady', async () => {
     console.log(`Bot operational as: ${botClient.user.tag}`);
     botClient.user.setActivity('🛒 Stocked Store Operations', { type: ActivityType.Watching });
-    
+
     const restApi = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
         await restApi.put(Routes.applicationCommands(botClient.user.id), { body: [] });
         await restApi.put(
-            Routes.applicationGuildCommands(botClient.user.id, '1542259049494610013'), 
+            Routes.applicationGuildCommands(botClient.user.id, '1542259049494610013'),
             { body: appCommands }
         );
         console.log('Commands synchronized cleanly.');
@@ -320,7 +320,7 @@ botClient.on('interactionCreate', async interaction => {
             try {
                 let userLedger = await Ledger.findOne({ discordId: targetUser.id });
                 if (!userLedger) userLedger = new Ledger({ discordId: targetUser.id, purchases: [], points: 0, coupons: [] });
-                
+
                 userLedger.coupons.push(discountPct);
                 await userLedger.save();
 
@@ -335,11 +335,11 @@ botClient.on('interactionCreate', async interaction => {
             const storeEmbed = new EmbedBuilder()
                 .setTitle('🎟️ Points & Coupon Store')
                 .setDescription(`Earn points automatically with every purchase you make! You can spend your saved points here on discount coupons for your next purchase.\n\n` +
-                                `**Point Earnings:**\n` +
-                                `• $1 - $100 = 2 Points\n` +
-                                `• $101 - $500 = 4 Points\n` +
-                                `• $501 - $1000 = 7 Points\n` +
-                                `• $1000+ = 10 Points`)
+                    `**Point Earnings:**\n` +
+                    `• $1 - $100 = 2 Points\n` +
+                    `• $101 - $500 = 4 Points\n` +
+                    `• $501 - $1000 = 7 Points\n` +
+                    `• $1000+ = 10 Points`)
                 .setColor(0xFFD700);
 
             const couponMenu = new StringSelectMenuBuilder()
@@ -357,7 +357,7 @@ botClient.on('interactionCreate', async interaction => {
         if (commandLabel === 'setup-store') {
             // 1. Instantly defer to prevent the 3-second timeout
             await interaction.deferReply({ flags: 64 });
-            
+
             const storeType = interaction.options.getString('store_type');
             const selectedChannelOption = interaction.options.getChannel('channel');
             const customTitle = interaction.options.getString('title') || 'RO8LOX User Stock';
@@ -388,14 +388,14 @@ botClient.on('interactionCreate', async interaction => {
                     ]);
 
                 const targetChannel = await interaction.guild.channels.fetch(selectedChannelOption.id);
-                await targetChannel.send({ 
-                    embeds: [catalogEmbed], 
-                    components: [new ActionRowBuilder().addComponents(tierMenu)] 
+                await targetChannel.send({
+                    embeds: [catalogEmbed],
+                    components: [new ActionRowBuilder().addComponents(tierMenu)]
                 });
 
                 // 2. Use editReply instead of reply since we deferred
                 await interaction.editReply({ content: '✅ Tier catalog deployed successfully!' });
-                
+
             } else {
                 const productTitle = interaction.options.getString('title');
                 const productPrice = interaction.options.getNumber('price');
@@ -407,13 +407,13 @@ botClient.on('interactionCreate', async interaction => {
                 if (!productTitle || productPrice === null || !productKey || !deliveryMethod) {
                     return interaction.editReply({ content: '❌ Missing required fields for a Single Item forum post.' });
                 }
-                
+
                 updateBotStatus(`🏷️ Creating store listing: ${productTitle}`);
                 const targetForum = await interaction.guild.channels.fetch(selectedChannelOption.id);
 
                 const embedFields = [
                     { name: 'Price', value: `$${productPrice} USD`, inline: true },
-                    { name: 'Delivery', value: deliveryMethod, inline: true }, 
+                    { name: 'Delivery', value: deliveryMethod, inline: true },
                     { name: '\u200B', value: '\u200B', inline: true }
                 ];
 
@@ -453,9 +453,9 @@ botClient.on('interactionCreate', async interaction => {
             const coupons = userLedger.coupons && userLedger.coupons.length > 0 ? userLedger.coupons.map(c => `${c}% Off`).join(', ') : 'None';
             const formattedItems = history.length > 0 ? history.map(entry => `• **${entry.item}**: \`${entry.code}\``).join('\n') : 'No items yet.';
 
-            await interaction.reply({ 
-                content: `**Your Profile**\n⭐ Points: \`${points}\`\n🎟️ Coupons: \`${coupons}\`\n\n**Your Active Codes:**\n${formattedItems}`, 
-                flags: 64 
+            await interaction.reply({
+                content: `**Your Profile**\n⭐ Points: \`${points}\`\n🎟️ Coupons: \`${coupons}\`\n\n**Your Active Codes:**\n${formattedItems}`,
+                flags: 64
             });
         }
 
@@ -478,7 +478,7 @@ botClient.on('interactionCreate', async interaction => {
         if (commandLabel === 'restock') {
             const itemId = interaction.options.getString('item_id');
             updateBotStatus(`📥 Restocking items for: ${itemId.toUpperCase()}`);
-            
+
             const rawInput = interaction.options.getString('codes');
 
             const newCodes = rawInput
@@ -498,19 +498,19 @@ botClient.on('interactionCreate', async interaction => {
             itemRecord.codes.push(...newCodes);
             await itemRecord.save();
 
-            await interaction.reply({ 
-                content: `✅ Successfully added **${newCodes.length}** account(s)/code(s) to \`${itemId}\`.\n📦 Total Stock: **${itemRecord.codes.length}**`, 
-                flags: 64 
+            await interaction.reply({
+                content: `✅ Successfully added **${newCodes.length}** account(s)/code(s) to \`${itemId}\`.\n📦 Total Stock: **${itemRecord.codes.length}**`,
+                flags: 64
             });
         }
 
         if (commandLabel === 'stock') {
             updateBotStatus(`📊 Checking inventory stock`);
             const allInventory = await Inventory.find({});
-            if (!allInventory || allInventory.length === 0) return interaction.reply({ content: 'No inventory records found.'});
+            if (!allInventory || allInventory.length === 0) return interaction.reply({ content: 'No inventory records found.' });
 
             const stockList = allInventory.map(item => `• **${item.itemId}**: ${item.codes.length} code(s) remaining`).join('\n');
-            await interaction.reply({ content: `📦 **Current Inventory Stock:**\n${stockList}`});
+            await interaction.reply({ content: `📦 **Current Inventory Stock:**\n${stockList}` });
         }
 
         if (commandLabel === 'remove-stock') {
@@ -541,7 +541,7 @@ botClient.on('interactionCreate', async interaction => {
                 if (!itemRecord || itemRecord.codes.length === 0) return interaction.reply({ content: `❌ Stock empty for \`${itemId}\`!`, flags: 64 });
 
                 let deliveredCode;
-                
+
                 // If the admin provided a specific account name, search the array for it
                 if (specificAccount) {
                     const codeIndex = itemRecord.codes.findIndex(c => c.toLowerCase().includes(specificAccount.toLowerCase()));
@@ -611,7 +611,7 @@ botClient.on('interactionCreate', async interaction => {
                 }
             }
 
-            setTimeout(() => channel.delete().catch(() => {}), 4000);
+            setTimeout(() => channel.delete().catch(() => { }), 4000);
         }
     }
 
@@ -620,7 +620,7 @@ botClient.on('interactionCreate', async interaction => {
         const customId = interaction.customId;
 
         if (customId.startsWith('purchase_action|')) {
-            await interaction.deferReply({ flags: 64 }).catch(() => {});
+            await interaction.deferReply({ flags: 64 }).catch(() => { });
 
             const [, productKey, productPrice] = customId.split('|');
             const sanitizedUser = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user';
@@ -674,7 +674,7 @@ botClient.on('interactionCreate', async interaction => {
         if (customId.startsWith('use_coupon_yes|')) {
             const [, productKey, productPrice] = customId.split('|');
             let userLedger = await Ledger.findOne({ discordId: interaction.user.id });
-            
+
             const uniqueCoupons = [...new Set(userLedger.coupons)];
             const options = uniqueCoupons.map(pct => ({
                 label: `Apply ${pct}% Off Coupon`,
@@ -699,9 +699,9 @@ botClient.on('interactionCreate', async interaction => {
                 .setDescription(`Order for **${productKey.toUpperCase()}**.\nTotal Price: \`$${productPrice} USD\``)
                 .setColor(0x5865F2);
 
-            await interaction.update({ 
-                embeds: [polishedEmbed], 
-                components: [generatePaymentMenu(productKey, productPrice, interaction.channelId), getCancelButtonRow()] 
+            await interaction.update({
+                embeds: [polishedEmbed],
+                components: [generatePaymentMenu(productKey, productPrice, interaction.channelId), getCancelButtonRow()]
             });
         }
 
@@ -715,7 +715,7 @@ botClient.on('interactionCreate', async interaction => {
 
         if (customId === 'close_order') {
             await interaction.reply({ content: '🗑️ Order cancelled. Channel closing...' });
-            setTimeout(() => interaction.channel.delete().catch(() => {}), 2000);
+            setTimeout(() => interaction.channel.delete().catch(() => { }), 2000);
         }
 
         if (customId.startsWith('create_user_ticket|')) {
@@ -740,10 +740,10 @@ botClient.on('interactionCreate', async interaction => {
                     .setDescription(`Welcome <@${interaction.user.id}>!\n\nRequested Category: **${categoryName}**`)
                     .setColor(0x5865F2);
 
-                await ticketChannel.send({ 
-                    content: `<@${interaction.user.id}> | <@&${ADMIN_ROLE_ID}>`, 
-                    embeds: [welcomeEmbed], 
-                    components: [getCancelButtonRow()] 
+                await ticketChannel.send({
+                    content: `<@${interaction.user.id}> | <@&${ADMIN_ROLE_ID}>`,
+                    embeds: [welcomeEmbed],
+                    components: [getCancelButtonRow()]
                 });
 
                 await interaction.editReply({ content: `✅ Ticket created: <#${ticketChannel.id}>` });
@@ -776,94 +776,94 @@ botClient.on('interactionCreate', async interaction => {
         }
 
         // A. Tier Selection (Resets public dropdown & sends ephemeral subcategory menu)
-if (customId.startsWith('tier_select')) {
-    try {
-        const [, encodedTitle] = customId.split('|');
-        const selectedTierKey = interaction.values[0];
-        const tierData = TIERS[selectedTierKey];
+        if (customId.startsWith('tier_select')) {
+            try {
+                const [, encodedTitle] = customId.split('|');
+                const selectedTierKey = interaction.values[0];
+                const tierData = TIERS[selectedTierKey];
 
-        if (!tierData) {
-            return interaction.reply({ content: '❌ Selected tier data not found.', flags: 64 });
+                if (!tierData) {
+                    return interaction.reply({ content: '❌ Selected tier data not found.', flags: 64 });
+                }
+
+                // Reset public menu instantly
+                const freshTierMenu = new StringSelectMenuBuilder()
+                    .setCustomId(customId)
+                    .setPlaceholder('Select a tier...')
+                    .addOptions([
+                        { label: '🔥 High Tier', value: 'high_tier', description: '2 Letters, 3 Digits, Real Words' },
+                        { label: '⚡ Mid Tier', value: 'mid_tier', description: '3 Letters, 4 Digits, Clean Compounds' },
+                        { label: '🌱 Low Tier', value: 'low_tier', description: 'Triples, 4L, Edgy, Finance, Leetspeak, Other' }
+                    ]);
+
+                await interaction.update({
+                    components: [new ActionRowBuilder().addComponents(freshTierMenu)]
+                });
+
+                // Send ephemeral subcategory dropdown
+                const subcatMenu = new StringSelectMenuBuilder()
+                    .setCustomId(`subcat_select|${encodedTitle}`)
+                    .setPlaceholder(`Select a subcategory...`)
+                    .addOptions(tierData.subcategories);
+
+                const subcatEmbed = new EmbedBuilder()
+                    .setTitle(`${tierData.label}`)
+                    .setDescription('Select a subcategory below to view available stock:')
+                    .setColor(0x5865F2);
+
+                await interaction.followUp({
+                    embeds: [subcatEmbed],
+                    components: [new ActionRowBuilder().addComponents(subcatMenu)],
+                    flags: 64
+                });
+            } catch (err) {
+                console.error('Error handling tier_select:', err);
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply({ content: '❌ An error occurred processing your selection.', flags: 64 });
+                }
+            }
         }
+        // B. Subcategory Selection (Fetches stock & user purchase dropdown)
+        if (customId.startsWith('subcat_select')) {
+            await interaction.deferReply({ flags: 64 });
 
-        // Reset public menu instantly
-        const freshTierMenu = new StringSelectMenuBuilder()
-            .setCustomId(customId)
-            .setPlaceholder('Select a tier...')
-            .addOptions([
-                { label: '🔥 High Tier', value: 'high_tier', description: '2 Letters, 3 Digits, Real Words' },
-                { label: '⚡ Mid Tier', value: 'mid_tier', description: '3 Letters, 4 Digits, Clean Compounds' },
-                { label: '🌱 Low Tier', value: 'low_tier', description: 'Triples, 4L, Edgy, Finance, Leetspeak, Other' }
-            ]);
+            const [, encodedTitle] = customId.split('|');
+            const storeTitle = encodedTitle ? decodeURIComponent(encodedTitle) : 'RO8LOX User Stock';
+            const selectedSubcat = interaction.values[0];
+            const categoryName = CATEGORY_NAMES[selectedSubcat] || selectedSubcat.toUpperCase();
 
-        await interaction.update({
-            components: [new ActionRowBuilder().addComponents(freshTierMenu)]
-        });
+            const itemRecord = await Inventory.findOne({ itemId: selectedSubcat });
+            if (!itemRecord || itemRecord.codes.length === 0) {
+                return interaction.editReply({ content: `❌ No accounts are currently in stock for **${categoryName}**.` });
+            }
 
-        // Send ephemeral subcategory dropdown
-        const subcatMenu = new StringSelectMenuBuilder()
-            .setCustomId(`subcat_select|${encodedTitle}`)
-            .setPlaceholder(`Select a subcategory...`)
-            .addOptions(tierData.subcategories);
+            const parsedStock = itemRecord.codes.map(parseAccountEntry);
+            const formattedStockList = parsedStock.map(i => i.displayLabel).join('\n');
 
-        const subcatEmbed = new EmbedBuilder()
-            .setTitle(`${tierData.label}`)
-            .setDescription('Select a subcategory below to view available stock:')
-            .setColor(0x5865F2);
+            const stockEmbed = new EmbedBuilder()
+                .setTitle(`${storeTitle} - ${categoryName}`)
+                .setDescription(
+                    `Before purchase read the channel rules and <#1542306776622309437>.\n` +
+                    `All listed accounts are unverified with no claimed billing.\n\n` +
+                    `\`\`\`\n${formattedStockList}\n\`\`\``
+                )
+                .setColor(0x2B2D31);
 
-        await interaction.followUp({
-            embeds: [subcatEmbed],
-            components: [new ActionRowBuilder().addComponents(subcatMenu)],
-            flags: 64
-        });
-    } catch (err) {
-        console.error('Error handling tier_select:', err);
-        if (!interaction.replied && !interaction.deferred) {
-            await interaction.reply({ content: '❌ An error occurred processing your selection.', flags: 64 });
+            const stockOptions = parsedStock.slice(0, 25).map(item => ({
+                label: item.displayLabel.substring(0, 100),
+                value: item.username.substring(0, 100)
+            }));
+
+            const stockMenu = new StringSelectMenuBuilder()
+                .setCustomId(`select_stock_user|${selectedSubcat}`)
+                .setPlaceholder('Select a user in stock to purchase...')
+                .addOptions(stockOptions);
+
+            await interaction.editReply({
+                embeds: [stockEmbed],
+                components: [new ActionRowBuilder().addComponents(stockMenu)]
+            });
         }
-    }
-}
-// B. Subcategory Selection (Fetches stock & user purchase dropdown)
-if (customId.startsWith('subcat_select')) {
-    await interaction.deferReply({ flags: 64 });
-
-    const [, encodedTitle] = customId.split('|');
-    const storeTitle = encodedTitle ? decodeURIComponent(encodedTitle) : 'RO8LOX User Stock';
-    const selectedSubcat = interaction.values[0];
-    const categoryName = CATEGORY_NAMES[selectedSubcat] || selectedSubcat.toUpperCase();
-
-    const itemRecord = await Inventory.findOne({ itemId: selectedSubcat });
-    if (!itemRecord || itemRecord.codes.length === 0) {
-        return interaction.editReply({ content: `❌ No accounts are currently in stock for **${categoryName}**.` });
-    }
-
-    const parsedStock = itemRecord.codes.map(parseAccountEntry);
-    const formattedStockList = parsedStock.map(i => i.displayLabel).join('\n');
-
-    const stockEmbed = new EmbedBuilder()
-        .setTitle(`${storeTitle} - ${categoryName}`)
-        .setDescription(
-            `Before purchase read the channel rules and <#1542306776622309437>.\n` +
-            `All listed accounts are unverified with no claimed billing.\n\n` +
-            `\`\`\`\n${formattedStockList}\n\`\`\``
-        )
-        .setColor(0x2B2D31);
-
-    const stockOptions = parsedStock.slice(0, 25).map(item => ({
-        label: item.displayLabel.substring(0, 100),
-        value: item.username.substring(0, 100)
-    }));
-
-    const stockMenu = new StringSelectMenuBuilder()
-        .setCustomId(`select_stock_user|${selectedSubcat}`)
-        .setPlaceholder('Select a user in stock to purchase...')
-        .addOptions(stockOptions);
-
-    await interaction.editReply({
-        embeds: [stockEmbed],
-        components: [new ActionRowBuilder().addComponents(stockMenu)]
-    });
-}
         if (customId.startsWith('select_stock_user|')) {
             await interaction.deferReply({ flags: 64 });
             const [, categoryId] = customId.split('|');
@@ -884,7 +884,7 @@ if (customId.startsWith('subcat_select')) {
 
                 const welcomeEmbed = new EmbedBuilder()
                     .setTitle('🎫 Account Purchase Ticket')
-                    .setDescription(`Welcome <@${interaction.user.id}>!\n\nRequested Account: **@${selectedUsername}**\nCategory: **${(CATEGORY_NAMES[categoryId] || categoryId).toUpperCase()}**\n\nSupport staff will assist you shortly.`)
+                    .setDescription(`Welcome <@${interaction.user.id}>!\n\nRequested Account: **@${selectedUsername}**\nCategory: **${(CATEGORY_NAMES[categoryId] || categoryId).toUpperCase()}**\n\n Price: **$${parseFloat(originalPrice).toFixed(2)} USD**\n\nSupport staff will assist you shortly.`)
                     .setColor(0x5865F2);
 
                 await ticketChannel.send({
@@ -957,7 +957,7 @@ if (customId.startsWith('subcat_select')) {
 
                 const payBtn = new ButtonBuilder().setLabel(`Pay $${productPrice} via Stripe`).setURL(stripeSession.url).setStyle(ButtonStyle.Link);
                 await orderChannel.send({ embeds: [checkoutEmbed], components: [new ActionRowBuilder().addComponents(payBtn, getCancelButtonRow().components[0])] });
-                await interaction.message.delete().catch(() => {});
+                await interaction.message.delete().catch(() => { });
             }
 
             if (selectedValue === 'select_crypto') {
@@ -977,7 +977,7 @@ if (customId.startsWith('subcat_select')) {
 
                 const submitTxBtn = new ButtonBuilder().setCustomId(`open_tx_modal|${productKey}`).setLabel('Submit Transaction Hash').setStyle(ButtonStyle.Success);
                 await orderChannel.send({ embeds: [cryptoEmbed], components: [new ActionRowBuilder().addComponents(submitTxBtn, getCancelButtonRow().components[0])] });
-                await interaction.message.delete().catch(() => {});
+                await interaction.message.delete().catch(() => { });
             }
         }
 
@@ -986,8 +986,8 @@ if (customId.startsWith('subcat_select')) {
             const subCategories = tier === 'high_tier'
                 ? [{ label: 'Rare Words', value: 'cat_rare_words' }]
                 : tier === 'mid_tier'
-                ? [{ label: '4 Letters', value: 'cat_4_letters' }]
-                : [{ label: '5 Digits', value: 'cat_5_digits' }];
+                    ? [{ label: '4 Letters', value: 'cat_4_letters' }]
+                    : [{ label: '5 Digits', value: 'cat_5_digits' }];
 
             const subMenu = new StringSelectMenuBuilder().setCustomId(`user_subcat_select|${tier}`).setPlaceholder('Select subcategory...').addOptions(subCategories);
             await interaction.reply({ embeds: [new EmbedBuilder().setTitle('📂 Select Category').setColor(0x5865F2)], components: [new ActionRowBuilder().addComponents(subMenu)], flags: 64 });

@@ -443,52 +443,6 @@ botClient.on('interactionCreate', async interaction => {
                 await interaction.editReply({ content: `✅ Successfully created forum post for **${productTitle}**!` });
             }
         }
-} else {
-    // Handle Item Store listing creation
-    const productTitle = interaction.options.getString('title');
-    const productPrice = interaction.options.getNumber('price');
-    const productKey = interaction.options.getString('item_id');
-    const robloxLink = interaction.options.getString('catalog_url');
-    const thumbnailPic = interaction.options.getString('image_url');
-    const deliveryMethod = interaction.options.getString('delivery_method');
-
-    if (!productTitle || productPrice === null || !productKey || !deliveryMethod) {
-        return interaction.reply({ content: '❌ Missing required fields for a Single Item forum post.', flags: 64 });
-    }
-                updateBotStatus(`🏷️ Creating store listing: ${productTitle}`);
-                const targetForum = await interaction.guild.channels.fetch(selectedChannelOption.id);
-
-                const embedFields = [
-                    { name: 'Price', value: `$${productPrice} USD`, inline: true },
-                    { name: 'Delivery', value: deliveryMethod, inline: true }, 
-                    { name: '\u200B', value: '\u200B', inline: true }
-                ];
-
-                if (robloxLink) embedFields.push({ name: 'Rolimons Link', value: `[View item](${robloxLink})`, inline: false });
-
-                const listingEmbed = new EmbedBuilder()
-                    .setTitle(`${productTitle}`)
-                    .setDescription(`Click on the button below to purchase!`)
-                    .setColor(0x2B2D31)
-                    .addFields(embedFields);
-
-                if (thumbnailPic) {
-                    listingEmbed.setImage(thumbnailPic);
-                }
-
-                const buyActionBtn = new ButtonBuilder()
-                    .setCustomId(`purchase_action|${productKey}|${productPrice}`)
-                    .setLabel(`Purchase ${productTitle}`.substring(0, 80))
-                    .setStyle(ButtonStyle.Primary);
-
-                await targetForum.threads.create({
-                    name: productTitle,
-                    message: { embeds: [listingEmbed], components: [new ActionRowBuilder().addComponents(buyActionBtn)] }
-                });
-
-                await interaction.reply({ content: `✅ Successfully created forum post for **${productTitle}**!`, flags: 64 });
-            }
-        }
 
         if (commandLabel === 'my-codes') {
             const userLedger = await Ledger.findOne({ discordId: interaction.user.id });

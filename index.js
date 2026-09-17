@@ -23,7 +23,7 @@ const {
 
 // Category mapping helper
 const CATEGORY_NAMES = {
-    'id': 'Triple Numbers',
+    'triple': 'Triple Numbers',
     '4l': '4 Letters',
     'edgy': 'Edgy Compounds',
     'finance': 'Finance Compounds',
@@ -344,7 +344,7 @@ botClient.on('interactionCreate', async interaction => {
                     .setCustomId(`account_category_select|${encodeURIComponent(customTitle)}`)
                     .setPlaceholder('Select a category...')
                     .addOptions([
-                        { label: 'Triple Numbers', value: 'id' },
+                        { label: 'Triple Numbers', value: 'triple' },
                         { label: '4 Letters', value: '4l' },
                         { label: 'Edgy Compounds', value: 'edgy' },
                         { label: 'Finance Compounds', value: 'finance' },

@@ -1,7 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 
 module.exports = [
-    // commandDefinitions.js
 new SlashCommandBuilder()
     .setName('setup-store')
     .setDescription('Create a new product post or account stock display (Admin)')
@@ -10,12 +9,12 @@ new SlashCommandBuilder()
         { name: 'Item Store (Automated Codes)', value: 'item' },
         { name: 'Account Stock Display (Users)', value: 'account' }
     ))
-    .addStringOption(opt => opt.setName('title').setDescription('Display Title / Post Name').setRequired(true))
-    .addNumberOption(opt => opt.setName('price').setDescription('Cost in USD').setRequired(true))
-    .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID matching inventory').setRequired(true))
+    .addStringOption(opt => opt.setName('title').setDescription('Display Title / Post Name').setRequired(false))
+    .addNumberOption(opt => opt.setName('price').setDescription('Cost in USD').setRequired(false))
+    .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID matching inventory').setRequired(false))
     .addStringOption(opt => opt.setName('delivery_method')
         .setDescription('Delivery Method')
-        .setRequired(true)
+        .setRequired(false)
         .addChoices(
             { name: 'Automated Code', value: 'Automated Code Delivery' },
             { name: 'Automated Link', value: 'Automated Activation Link' },
@@ -24,7 +23,6 @@ new SlashCommandBuilder()
         ))
     .addStringOption(opt => opt.setName('image_url').setDescription('Thumbnail / Image URL (Optional)').setRequired(false))
     .addStringOption(opt => opt.setName('catalog_url').setDescription('Rolimons link (Optional)').setRequired(false)),
-    new SlashCommandBuilder()
         .setName('my-codes')
         .setDescription('Inspect your previously purchased items and points'),
     new SlashCommandBuilder()

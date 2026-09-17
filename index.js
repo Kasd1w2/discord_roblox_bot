@@ -355,6 +355,8 @@ botClient.on('interactionCreate', async interaction => {
         }
 
         if (commandLabel === 'setup-store') {
+            // 1. Immediately acknowledge Discord to prevent 3-second timeout
+    await interaction.deferReply({ flags: 64 });
             const storeType = interaction.options.getString('store_type');
             const selectedChannelOption = interaction.options.getChannel('channel');
             const customTitle = interaction.options.getString('title') || 'RO8LOX User Stock';
@@ -758,42 +760,52 @@ return interaction.reply({ content: '✅ Tier catalog deployed successfully!', f
 
         // A. Tier Selection (Resets public dropdown & sends ephemeral subcategory menu)
 if (customId.startsWith('tier_select')) {
-    const [, encodedTitle] = customId.split('|');
-    const selectedTierKey = interaction.values[0];
-    const tierData = TIERS[selectedTierKey];
+    try {
+        const [, encodedTitle] = customId.split('|');
+        const selectedTierKey = interaction.values[0];
+        const tierData = TIERS[selectedTierKey];
 
-    // Reset public menu instantly so users can re-click any option anytime
-    const freshTierMenu = new StringSelectMenuBuilder()
-        .setCustomId(customId)
-        .setPlaceholder('Select a tier...')
-        .addOptions([
-            { label: '🔥 High Tier', value: 'high_tier', description: '2 Letters, 3 Digits, Real Words' },
-            { label: '⚡ Mid Tier', value: 'mid_tier', description: '3 Letters, 4 Digits, Clean Compounds' },
-            { label: '🌱 Low Tier', value: 'low_tier', description: 'Triples, 4L, Edgy, Finance, Leetspeak, Other' }
-        ]);
+        if (!tierData) {
+            return interaction.reply({ content: '❌ Selected tier data not found.', flags: 64 });
+        }
 
-    await interaction.update({
-        components: [new ActionRowBuilder().addComponents(freshTierMenu)]
-    });
+        // Reset public menu instantly
+        const freshTierMenu = new StringSelectMenuBuilder()
+            .setCustomId(customId)
+            .setPlaceholder('Select a tier...')
+            .addOptions([
+                { label: '🔥 High Tier', value: 'high_tier', description: '2 Letters, 3 Digits, Real Words' },
+                { label: '⚡ Mid Tier', value: 'mid_tier', description: '3 Letters, 4 Digits, Clean Compounds' },
+                { label: '🌱 Low Tier', value: 'low_tier', description: 'Triples, 4L, Edgy, Finance, Leetspeak, Other' }
+            ]);
 
-    // Send ephemeral subcategory dropdown to the user
-    const subcatMenu = new StringSelectMenuBuilder()
-        .setCustomId(`subcat_select|${encodedTitle}`)
-        .setPlaceholder(`Select a subcategory under ${tierData.label}...`)
-        .addOptions(tierData.subcategories);
+        await interaction.update({
+            components: [new ActionRowBuilder().addComponents(freshTierMenu)]
+        });
 
-    const subcatEmbed = new EmbedBuilder()
-        .setTitle(`${tierData.label}`)
-        .setDescription('Select a subcategory below to view available stock:')
-        .setColor(0x5865F2);
+        // Send ephemeral subcategory dropdown
+        const subcatMenu = new StringSelectMenuBuilder()
+            .setCustomId(`subcat_select|${encodedTitle}`)
+            .setPlaceholder(`Select a subcategory under ${tierData.label}...`)
+            .addOptions(tierData.subcategories);
 
-    await interaction.followUp({
-        embeds: [subcatEmbed],
-        components: [new ActionRowBuilder().addComponents(subcatMenu)],
-        flags: 64
-    });
+        const subcatEmbed = new EmbedBuilder()
+            .setTitle(`${tierData.label}`)
+            .setDescription('Select a subcategory below to view available stock:')
+            .setColor(0x5865F2);
+
+        await interaction.followUp({
+            embeds: [subcatEmbed],
+            components: [new ActionRowBuilder().addComponents(subcatMenu)],
+            flags: 64
+        });
+    } catch (err) {
+        console.error('Error handling tier_select:', err);
+        if (!interaction.replied && !interaction.deferred) {
+            await interaction.reply({ content: '❌ An error occurred processing your selection.', flags: 64 });
+        }
+    }
 }
-
 // B. Subcategory Selection (Fetches stock & user purchase dropdown)
 if (customId.startsWith('subcat_select')) {
     await interaction.deferReply({ flags: 64 });

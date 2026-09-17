@@ -32,9 +32,9 @@ new SlashCommandBuilder()
     .setDescription('Post the Request Limited informational embed (Admin)'),
     new SlashCommandBuilder()
         .setName('restock')
-        .setDescription('Add stock codes to an item (Admin)')
+        .setDescription('Add stock codes or accounts to an item (Admin)')
         .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID key').setRequired(true))
-        .addStringOption(opt => opt.setName('codes').setDescription('Comma-separated codes (e.g. CODE1,CODE2)').setRequired(true)),
+        .addStringOption(opt => opt.setName('codes').setDescription('Paste user:password lines or comma-separated codes').setRequired(true)),
     new SlashCommandBuilder()
         .setName('stock')
         .setDescription('Check available inventory stock levels'),

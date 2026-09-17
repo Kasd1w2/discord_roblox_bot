@@ -392,15 +392,31 @@ if (thumbnailPic) {
         if (commandLabel === 'restock') {
             const itemId = interaction.options.getString('item_id');
             updateBotStatus(`📥 Restocking items for: ${itemId.toUpperCase()}`);
-            const newCodes = interaction.options.getString('codes').split(',').map(c => c.trim());
+            
+            const rawInput = interaction.options.getString('codes');
+
+            // Splitting by newlines, commas, or spaces to handle multiline user:pass blocks cleanly
+            const newCodes = rawInput
+                .split(/[\r\n,]+|\s+/)
+                .map(c => c.trim())
+                .filter(c => c.length > 0);
+
+            if (newCodes.length === 0) {
+                return interaction.reply({ content: '❌ No valid entries detected in input.', flags: 64 });
+            }
 
             let itemRecord = await Inventory.findOne({ itemId });
-            if (!itemRecord) itemRecord = new Inventory({ itemId, codes: [] });
+            if (!itemRecord) {
+                itemRecord = new Inventory({ itemId, codes: [] });
+            }
 
             itemRecord.codes.push(...newCodes);
             await itemRecord.save();
 
-            await interaction.reply({ content: `✅ Added ${newCodes.length} codes to \`${itemId}\`. Total stock: ${itemRecord.codes.length}`, flags: 64 });
+            await interaction.reply({ 
+                content: `✅ Successfully added **${newCodes.length}** account(s)/code(s) to \`${itemId}\`.\n📦 Total Stock: **${itemRecord.codes.length}**`, 
+                flags: 64 
+            });
         }
 
         if (commandLabel === 'stock') {

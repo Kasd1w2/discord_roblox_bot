@@ -565,6 +565,8 @@ botClient.on('interactionCreate', async interaction => {
                 if (pointsEarned > 0) userLedger.points += pointsEarned;
                 await userLedger.save();
 
+                deliveredCode = deliveredCode.replace(/:.*$/, ''); // Remove any price info from the code for privacy
+                
                 const deliveryEmbed = new EmbedBuilder()
                     .setTitle('🎁 Order Delivery')
                     .setDescription(`Code for **${itemId.toUpperCase()}**:\n\`\`\`${deliveredCode}\`\`\``)

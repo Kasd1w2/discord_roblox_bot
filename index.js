@@ -305,7 +305,7 @@ botClient.on('interactionCreate', async interaction => {
         .setCustomId('account_category_select')
         .setPlaceholder('⬇️ Low Tier (0-200)')
         .addOptions([
-            { label: 'Triple Numbers', value: 'id' },
+            { label: 'Triple Numbers', value: 'triple' },
             { label: '4 Letters', value: '4l' },
             { label: 'Edgy Compounds', value: 'edgy' },
             { label: 'Finance Compounds', value: 'finance' },

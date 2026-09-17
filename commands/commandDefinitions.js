@@ -19,7 +19,7 @@ module.exports = [
                 { name: 'Automated Code', value: 'Automated Code Delivery' },
                 { name: 'Automated Link', value: 'Automated Activation Link' },
                 { name: 'Manual Delivery', value: 'Manual Delivery' },
-                { name: 'User:Password', value: 'User:Password Delivery' },
+                { name: 'User:Password', value: 'User:Password Delivery' }
             ))
         .addStringOption(opt => opt.setName('image_url').setDescription('Thumbnail / Image URL (Optional)').setRequired(false))
         .addStringOption(opt => opt.setName('catalog_url').setDescription('Rolimons link (Optional)').setRequired(false)),
@@ -27,33 +27,34 @@ module.exports = [
     new SlashCommandBuilder()
         .setName('my-codes')
         .setDescription('Inspect your previously purchased items and points'),
-    // ... remaining commands stay unchanged
-];
+
     new SlashCommandBuilder()
-        .setName('my-codes')
-        .setDescription('Inspect your previously purchased items and points'),
-    new SlashCommandBuilder()
-    .setName('request-limited')
-    .setDescription('Post the Request Limited informational embed (Admin)'),
+        .setName('request-limited')
+        .setDescription('Post the Request Limited informational embed (Admin)'),
+
     new SlashCommandBuilder()
         .setName('restock')
         .setDescription('Add stock codes or accounts to an item (Admin)')
         .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID key').setRequired(true))
         .addStringOption(opt => opt.setName('codes').setDescription('Paste user:password lines or comma-separated codes').setRequired(true)),
+
     new SlashCommandBuilder()
         .setName('stock')
         .setDescription('Check available inventory stock levels'),
+
     new SlashCommandBuilder()
         .setName('remove-stock')
         .setDescription('Remove specific codes from an item (Admin)')
         .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID key').setRequired(true))
         .addStringOption(opt => opt.setName('codes').setDescription('Comma-separated codes to remove').setRequired(true)),
+
     new SlashCommandBuilder()
         .setName('deliver')
         .setDescription('Pull code from database and send code embed with user ping (Admin)')
         .addUserOption(opt => opt.setName('buyer').setDescription('Select the user to ping').setRequired(true))
         .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID key to pull code from').setRequired(true))
         .addNumberOption(opt => opt.setName('price').setDescription('Order price in USD to award points (Optional)').setRequired(true)),
+
     new SlashCommandBuilder()
         .setName('close')
         .setDescription('Close order channel and log successful/failed sale (Admin)')
@@ -61,17 +62,19 @@ module.exports = [
         .addStringOption(opt => opt.setName('method').setDescription('Payment method used').setRequired(false).addChoices({ name: 'Stripe (Card)', value: 'Stripe (Card)' }, { name: 'Cryptocurrency', value: 'Cryptocurrency' }))
         .addUserOption(opt => opt.setName('buyer').setDescription('Buyer (needed to award points if successful)').setRequired(false))
         .addNumberOption(opt => opt.setName('price').setDescription('Final order price (needed to award points)').setRequired(false)),
+
     new SlashCommandBuilder()
         .setName('coupon-store')
         .setDescription('Drop the interactive Coupon Store embed in this channel (Admin)'),
+
     new SlashCommandBuilder()
         .setName('give-coupon')
         .setDescription('Give a discount coupon to a user manually (Admin)')
         .addUserOption(opt => opt.setName('user').setDescription('The user to receive the coupon').setRequired(true))
         .addNumberOption(opt => opt.setName('discount').setDescription('Discount percentage (e.g., 10, 15, 50)').setRequired(true)),
+
     new SlashCommandBuilder()
         .setName('view-points')
         .setDescription('View the points and coupons of a specific user (Admin)')
-        .addUserOption(opt => opt.setName('user').setDescription('The user to inspect').setRequired(true)),
-
+        .addUserOption(opt => opt.setName('user').setDescription('The user to inspect').setRequired(true))
 ];

@@ -21,6 +21,43 @@ const {
     PermissionFlagsBits
 } = require('discord.js');
 
+// Add helper near top of index.js
+const CATEGORY_NAMES = {
+    'id': 'Triple Numbers',
+    '4l': '4 Letters',
+    'edgy': 'Edgy Compounds',
+    'finance': 'Finance Compounds',
+    'leetspeak': 'Leetspeak',
+    'other': 'Other'
+};
+
+function parseAccountEntry(codeString) {
+    let raw = codeString.trim();
+    let username = raw;
+    let price = '';
+
+    if (raw.includes(':')) {
+        const parts = raw.split(':');
+        username = parts[0].trim().replace(/^@/, '');
+        if (parts[2]) {
+            let rawPrice = parts[2].trim();
+            price = rawPrice.startsWith('$') ? rawPrice : `$${rawPrice}`;
+        }
+    } else if (raw.includes('-')) {
+        const parts = raw.split('-');
+        username = parts[0].trim().replace(/^@/, '');
+        price = parts[1].trim();
+        if (price && !price.startsWith('$')) price = `$${price}`;
+    } else {
+        username = raw.replace(/^@/, '');
+    }
+
+    let displayLabel = `@${username}`;
+    if (price) displayLabel += ` - ${price}`;
+
+    return { username, displayLabel };
+}
+
 // Modular Imports
 const Inventory = require('./models/Inventory');
 const Ledger = require('./models/Ledger');
@@ -282,40 +319,42 @@ botClient.on('interactionCreate', async interaction => {
         }
 
         if (commandLabel === 'setup-store') {
-            const storeType = interaction.options.getString('store_type');
-            const selectedChannelOption = interaction.options.getChannel('channel');
+    const storeType = interaction.options.getString('store_type');
+    const selectedChannelOption = interaction.options.getChannel('channel');
+    const customTitle = interaction.options.getString('title') || 'RO8LOX User Stock';
 
-            if (storeType === 'account') {
-    updateBotStatus(`🏷️ Deploying User Catalog`);
-    
-    const catalogEmbed = new EmbedBuilder()
-        .setDescription(
-            `We DO NOT proxy the same accs seen in the Com. A large majority of accs are directly from the original owners. Largely obtained through private methods which only we know.\n\n` +
-            `🛡️ Every acc is new to com, unverified, and sniped by us (unless stated otherwise). All accs are guaranteed to be safe.\n` +
-            `All acc details can be provided upon enquiry.\n\n` +
-            `↕️ Users are sorted by price in USD, select your budget within the dropdown to see users. All BINs are negotiable.\n\n` +
-            `Payment Methods accepted: 🪙 Crypto, ✨ Clean Limiteds\n\n` +
-            `For an extra +% we can also take: 🅿️ Paypal, 💲 CashApp, 🍎 Apple Pay, ♈ Venmo, 💤 Zelle, 🏦 Bank Transfer and 🍁 Interac.\n\n` +
-            `Select an option below to purchase then make a ticket.`
-        )
-        .setColor(0x2B2D31);
+    if (storeType === 'account') {
+        updateBotStatus(`🏷️ Deploying User Catalog`);
 
-    // Dropdown values precisely match the IDs you will use for the /restock command
-    const categoryMenu = new StringSelectMenuBuilder()
-        .setCustomId('account_category_select')
-        .setPlaceholder('⬇️ Low Tier (0-200)')
-        .addOptions([
-            { label: 'Triple Numbers', value: 'triple' },
-            { label: '4 Letters', value: '4l' },
-            { label: 'Edgy Compounds', value: 'edgy' },
-            { label: 'Finance Compounds', value: 'finance' },
-            { label: 'Leetspeak', value: 'leetspeak' },
-            { label: 'Other', value: 'other' }
-        ]);
+        const catalogEmbed = new EmbedBuilder()
+            .setTitle(customTitle)
+            .setDescription(
+                `We DO NOT proxy the same accs seen in the Com. A large majority of accs are directly from the original owners. Largely obtained through private methods which only we know.\n\n` +
+                `🛡️ Every acc is new to com, unverified, and sniped by us (unless stated otherwise). All accs are guaranteed to be safe.\n` +
+                `All acc details can be provided upon enquiry.\n\n` +
+                `↕️ Users are sorted by price in USD, select your budget within the dropdown to see users. All BINs are negotiable.\n\n` +
+                `Payment Methods accepted: 🪙 Crypto, ✨ Clean Limiteds\n\n` +
+                `For an extra +% we can also take: 🅿️ Paypal, 💲 CashApp, 🍎 Apple Pay, ♈ Venmo, 💤 Zelle, 🏦 Bank Transfer and 🍁 Interac.\n\n` +
+                `Select an option below to purchase then make a ticket.`
+            )
+            .setColor(0x2B2D31);
 
-    const targetChannel = await interaction.guild.channels.fetch(selectedChannelOption.id);
-    await targetChannel.send({ embeds: [catalogEmbed], components: [new ActionRowBuilder().addComponents(categoryMenu)] });
-    return interaction.reply({ content: '✅ Username catalog deployed successfully!', flags: 64 });
+        const categoryMenu = new StringSelectMenuBuilder()
+            .setCustomId(`account_category_select|${encodeURIComponent(customTitle)}`)
+            .setPlaceholder('Select a category...')
+            .addOptions([
+                { label: 'Triple Numbers', value: 'id' },
+                { label: '4 Letters', value: '4l' },
+                { label: 'Edgy Compounds', value: 'edgy' },
+                { label: 'Finance Compounds', value: 'finance' },
+                { label: 'Leetspeak', value: 'leetspeak' },
+                { label: 'Other', value: 'other' }
+            ]);
+
+        const targetChannel = await interaction.guild.channels.fetch(selectedChannelOption.id);
+        await targetChannel.send({ embeds: [catalogEmbed], components: [new ActionRowBuilder().addComponents(categoryMenu)] });
+        return interaction.reply({ content: '✅ Username catalog deployed successfully!', flags: 64 });
+    }
 }
 
             // index.js (inside setup-store logic)
@@ -687,68 +726,85 @@ if (customId.startsWith('purchase_action|')) {
         }
         // Add this inside if (interaction.isStringSelectMenu()) { ... }
 
-if (customId === 'account_category_select') {
-    await interaction.deferReply({ flags: 64 }); // Keeps the stock browsing hidden from main chat
-    const selectedCat = interaction.values[0];
 
-    const itemRecord = await Inventory.findOne({ itemId: selectedCat });
-    if (!itemRecord || itemRecord.codes.length === 0) {
-        return interaction.editReply({ content: `❌ No accounts are currently in stock for this category.` });
+    if (customId.startsWith('account_category_select')) {
+        await interaction.deferReply({ flags: 64 });
+
+        const [, encodedTitle] = customId.split('|');
+        const storeTitle = encodedTitle ? decodeURIComponent(encodedTitle) : 'RO8LOX User Stock';
+        const selectedCat = interaction.values[0];
+        const categoryName = CATEGORY_NAMES[selectedCat] || selectedCat.toUpperCase();
+
+        const itemRecord = await Inventory.findOne({ itemId: selectedCat });
+        if (!itemRecord || itemRecord.codes.length === 0) {
+            return interaction.editReply({ content: `❌ No accounts are currently in stock for **${categoryName}**.` });
+        }
+
+        // Safely parse entries (strips passwords out)
+        const parsedStock = itemRecord.codes.map(parseAccountEntry);
+        const formattedStockList = parsedStock.map(i => i.displayLabel).join('\n');
+
+        // Formats embed matching Screenshot 2
+        const stockEmbed = new EmbedBuilder()
+            .setTitle(`${storeTitle} - ${categoryName}`)
+            .setDescription(
+                `Before purchase read the above and <#1542306776622309437>.\n` +
+                `All listed here accounts are unverified with no claimed billing.\n\n` +
+                `\`\`\`\n${formattedStockList}\n\`\`\``
+            )
+            .setColor(0x2B2D31);
+
+        // Safe dropdown options with passwords omitted (Discord allows max 25 options)
+        const stockOptions = parsedStock.slice(0, 25).map(item => ({
+            label: item.displayLabel.substring(0, 100),
+            value: item.username.substring(0, 100)
+        }));
+
+        const stockMenu = new StringSelectMenuBuilder()
+            .setCustomId(`select_stock_user|${selectedCat}`)
+            .setPlaceholder('Select a user in stock to purchase...')
+            .addOptions(stockOptions);
+
+        await interaction.editReply({ 
+            embeds: [stockEmbed], 
+            components: [new ActionRowBuilder().addComponents(stockMenu)] 
+        });
     }
 
-    // Maps the stock array to dropdown options (Discord limits Select Menus to 25 items max)
-    const stockOptions = itemRecord.codes.slice(0, 25).map(username => ({
-        label: username,
-        value: username 
-    }));
+    if (customId.startsWith('select_stock_user|')) {
+        await interaction.deferReply({ flags: 64 });
+        const [, categoryId] = customId.split('|');
+        const selectedUsername = interaction.values[0]; 
+        const sanitizedBuyer = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-    const stockMenu = new StringSelectMenuBuilder()
-        .setCustomId(`select_stock_user|${selectedCat}`)
-        .setPlaceholder(`Select a user in stock to purchase...`)
-        .addOptions(stockOptions);
+        try {
+            const ticketChannel = await interaction.guild.channels.create({
+                name: `buy-${selectedUsername.toLowerCase()}-${sanitizedBuyer}`.substring(0, 100),
+                type: ChannelType.GuildText,
+                permissionOverwrites: [
+                    { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+                    { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                    { id: botClient.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                    { id: ADMIN_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
+                ]
+            });
 
-    const stockEmbed = new EmbedBuilder()
-        .setTitle(`📂 Browsing Stock`)
-        .setDescription(`Select the exact username you wish to purchase below to open a ticket.`)
-        .setColor(0x2B2D31);
+            const welcomeEmbed = new EmbedBuilder()
+                .setTitle('🎫 Account Purchase Ticket')
+                .setDescription(`Welcome <@${interaction.user.id}>!\n\nRequested Account: **@${selectedUsername}**\nCategory: **${(CATEGORY_NAMES[categoryId] || categoryId).toUpperCase()}**\n\nSupport staff will assist you shortly.`)
+                .setColor(0x5865F2);
 
-    await interaction.editReply({ embeds: [stockEmbed], components: [new ActionRowBuilder().addComponents(stockMenu)] });
-}
+            await ticketChannel.send({ 
+                content: `<@${interaction.user.id}> | <@&${ADMIN_ROLE_ID}>`, 
+                embeds: [welcomeEmbed], 
+                components: [getCancelButtonRow()] 
+            });
 
-if (customId.startsWith('select_stock_user|')) {
-    await interaction.deferReply({ flags: 64 });
-    const [, categoryId] = customId.split('|');
-    const selectedUsername = interaction.values[0];
-    const sanitizedBuyer = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
-
-    try {
-        const ticketChannel = await interaction.guild.channels.create({
-            name: `buy-${selectedUsername.toLowerCase()}-${sanitizedBuyer}`.substring(0, 100),
-            type: ChannelType.GuildText,
-            permissionOverwrites: [
-                { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-                { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-                { id: botClient.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-                { id: ADMIN_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
-            ]
-        });
-
-        const welcomeEmbed = new EmbedBuilder()
-            .setTitle('🎫 Account Purchase Ticket')
-            .setDescription(`Welcome <@${interaction.user.id}>!\n\nRequested Account: **${selectedUsername}**\nCategory: **${categoryId.toUpperCase()}**\n\nSupport will be with you shortly to assist with the transaction.`)
-            .setColor(0x5865F2);
-
-        await ticketChannel.send({ 
-            content: `<@${interaction.user.id}> | <@&${ADMIN_ROLE_ID}>`, 
-            embeds: [welcomeEmbed], 
-            // Assumes getCancelButtonRow() is defined in your scope
-            components: [getCancelButtonRow()] 
-        });
-
-        await interaction.editReply({ content: `✅ Ticket created successfully: <#${ticketChannel.id}>` });
-    } catch (err) {
-        console.error('Ticket error:', err);
-        await interaction.editReply({ content: '❌ Failed to create ticket. Please check bot permissions.' });
+            await interaction.editReply({ content: `✅ Ticket created: <#${ticketChannel.id}>` });
+        } catch (err) {
+            console.error('Ticket error:', err);
+            await interaction.editReply({ content: '❌ Failed to create ticket channel.' });
+        }
     }
 }
 

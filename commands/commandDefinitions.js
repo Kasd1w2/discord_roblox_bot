@@ -1,28 +1,29 @@
 const { SlashCommandBuilder } = require('discord.js');
 
 module.exports = [
-    new SlashCommandBuilder()
-        .setName('setup-store')
-        .setDescription('Create a new product post or account stock display (Admin)')
-        .addChannelOption(opt => opt.setName('channel').setDescription('Select the channel (Forum for Items, Text for Accounts)').setRequired(true))
-        .addStringOption(opt => opt.setName('store_type').setDescription('What are you setting up?').setRequired(true).addChoices(
-            { name: 'Item Store (Automated Codes)', value: 'item' },
-            { name: 'Account Stock Display (Users)', value: 'account' }
+    // commandDefinitions.js
+new SlashCommandBuilder()
+    .setName('setup-store')
+    .setDescription('Create a new product post or account stock display (Admin)')
+    .addChannelOption(opt => opt.setName('channel').setDescription('Select the channel').setRequired(true))
+    .addStringOption(opt => opt.setName('store_type').setDescription('What are you setting up?').setRequired(true).addChoices(
+        { name: 'Item Store (Automated Codes)', value: 'item' },
+        { name: 'Account Stock Display (Users)', value: 'account' }
+    ))
+    .addStringOption(opt => opt.setName('title').setDescription('Display Title / Post Name').setRequired(true))
+    .addNumberOption(opt => opt.setName('price').setDescription('Cost in USD').setRequired(true))
+    .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID matching inventory').setRequired(true))
+    .addStringOption(opt => opt.setName('delivery_method')
+        .setDescription('Delivery Method')
+        .setRequired(true)
+        .addChoices(
+            { name: 'Automated Code', value: 'Automated Code Delivery' },
+            { name: 'Automated Link', value: 'Automated Activation Link' },
+            { name: 'Manual Delivery', value: 'Manual Delivery' },
+            { name: 'User:Password', value: 'User:Password Delivery' },
         ))
-        .addStringOption(opt => opt.setName('title').setDescription('Display Title / Post Name').setRequired(true))
-        .addStringOption(opt => opt.setName('image_url').setDescription('Thumbnail / Image URL (Optional)').setRequired(false))
-        .addNumberOption(opt => opt.setName('price').setDescription('Cost in USD (Required for items)').setRequired(false))
-        .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID matching inventory (Required for items)').setRequired(false))
-        .addStringOption(opt => opt.setName('delivery_method')
-            .setDescription('Delivery Method (For items)')
-            .setRequired(false)
-            .addChoices(
-                { name: 'Automated Code', value: 'Automated Code Delivery' },
-                { name: 'Automated Link', value: 'Automated Activation Link' },
-                { name: 'Manual Delivery', value: 'Manual Delivery' },
-                { name : 'User:Password', value: 'User:Password Delivery' },
-            ))
-        .addStringOption(opt => opt.setName('catalog_url').setDescription('Roblox Catalog / Rolimons link (Optional)').setRequired(false)),
+    .addStringOption(opt => opt.setName('image_url').setDescription('Thumbnail / Image URL (Optional)').setRequired(false))
+    .addStringOption(opt => opt.setName('catalog_url').setDescription('Rolimons link (Optional)').setRequired(false)),
     new SlashCommandBuilder()
         .setName('my-codes')
         .setDescription('Inspect your previously purchased items and points'),

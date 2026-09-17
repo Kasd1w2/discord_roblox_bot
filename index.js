@@ -310,34 +310,40 @@ botClient.on('interactionCreate', async interaction => {
                 return interaction.reply({ content: '✅ Username catalog deployed successfully!', flags: 64 });
             }
 
-            const productTitle = interaction.options.getString('title');
-            const productPrice = interaction.options.getNumber('price');
-            const productKey = interaction.options.getString('item_id');
-            const robloxLink = interaction.options.getString('catalog_url');
-            const thumbnailPic = interaction.options.getString('image_url');
-            const deliveryMethod = interaction.options.getString('delivery_method');
+            // index.js (inside setup-store logic)
+const productTitle = interaction.options.getString('title');
+const productPrice = interaction.options.getNumber('price');
+const productKey = interaction.options.getString('item_id');
+const robloxLink = interaction.options.getString('catalog_url');
+const thumbnailPic = interaction.options.getString('image_url');
+const deliveryMethod = interaction.options.getString('delivery_method');
 
-            if (!productTitle || !productPrice || !productKey || !thumbnailPic || !deliveryMethod) {
-                return interaction.reply({ content: '❌ Missing required fields for a Single Item forum post.', flags: 64 });
-            }
+// Require core details, but allow thumbnailPic to be optional
+if (!productTitle || productPrice === null || !productKey || !deliveryMethod) {
+    return interaction.reply({ content: '❌ Missing required fields for a Single Item forum post.', flags: 64 });
+}
 
-            updateBotStatus(`🏷️ Creating store listing: ${productTitle}`);
-            const targetForum = await interaction.guild.channels.fetch(selectedChannelOption.id);
-            
-            const embedFields = [
-                { name: 'Price', value: `$${productPrice} USD`, inline: true },
-                { name: 'Delivery', value: deliveryMethod, inline: true }, 
-                { name: '\u200B', value: '\u200B', inline: true }
-            ];
+updateBotStatus(`🏷️ Creating store listing: ${productTitle}`);
+const targetForum = await interaction.guild.channels.fetch(selectedChannelOption.id);
 
-            if (robloxLink) embedFields.push({ name: 'Rolimons Link', value: `[View item](${robloxLink})`, inline: false });
+const embedFields = [
+    { name: 'Price', value: `$${productPrice} USD`, inline: true },
+    { name: 'Delivery', value: deliveryMethod, inline: true }, 
+    { name: '\u200B', value: '\u200B', inline: true }
+];
 
-            const listingEmbed = new EmbedBuilder()
-                .setTitle(`${productTitle}`)
-                .setDescription(`Click on the button below to purchase!`)
-                .setColor(0x2B2D31)
-                .addFields(embedFields)
-                .setImage(thumbnailPic);
+if (robloxLink) embedFields.push({ name: 'Rolimons Link', value: `[View item](${robloxLink})`, inline: false });
+
+const listingEmbed = new EmbedBuilder()
+    .setTitle(`${productTitle}`)
+    .setDescription(`Click on the button below to purchase!`)
+    .setColor(0x2B2D31)
+    .addFields(embedFields);
+
+// Only attach image if provided
+if (thumbnailPic) {
+    listingEmbed.setImage(thumbnailPic);
+}
 
             const buyActionBtn = new ButtonBuilder()
                 .setCustomId(`purchase_action|${productKey}|${productPrice}`)
@@ -498,56 +504,59 @@ botClient.on('interactionCreate', async interaction => {
         const customId = interaction.customId;
 
         // Buy Store Listing Action
-        if (customId.startsWith('purchase_action|')) {
-            await interaction.deferReply({ flags: 64 });
-            const [, productKey, productPrice] = customId.split('|');
-            const sanitizedUser = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
+        // index.js (inside button handler)
+if (customId.startsWith('purchase_action|')) {
+    // Defer immediately to prevent "didn't respond in time"
+    await interaction.deferReply({ flags: 64 }).catch(() => {});
 
-            try {
-                const tradeChannel = await interaction.guild.channels.create({
-                    name: `trade-${productKey.toLowerCase()}-${sanitizedUser}`.substring(0, 100),
-                    type: ChannelType.GuildText,
-                    permissionOverwrites: [
-                        { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-                        { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-                        { id: botClient.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-                        { id: ADMIN_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
-                    ]
-                });
+    const [, productKey, productPrice] = customId.split('|');
+    const sanitizedUser = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user';
 
-                let userLedger = await Ledger.findOne({ discordId: interaction.user.id });
+    try {
+        const tradeChannel = await interaction.guild.channels.create({
+            name: `trade-${productKey.toLowerCase()}-${sanitizedUser}`.substring(0, 100),
+            type: ChannelType.GuildText,
+            permissionOverwrites: [
+                { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+                { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                { id: botClient.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                { id: ADMIN_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
+            ]
+        });
 
-                if (userLedger && userLedger.coupons && userLedger.coupons.length > 0) {
-                    const couponEmbed = new EmbedBuilder()
-                        .setTitle('🎟️ Discount Coupon Available!')
-                        .setDescription(`You have available coupons! Would you like to apply a coupon to this purchase?`)
-                        .setColor(0xFFD700);
+        let userLedger = await Ledger.findOne({ discordId: interaction.user.id });
 
-                    const couponRow = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder().setCustomId(`use_coupon_yes|${productKey}|${productPrice}`).setLabel('Use Coupon').setStyle(ButtonStyle.Success),
-                        new ButtonBuilder().setCustomId(`use_coupon_no|${productKey}|${productPrice}`).setLabel('Skip Coupon').setStyle(ButtonStyle.Secondary)
-                    );
+        if (userLedger && userLedger.coupons && userLedger.coupons.length > 0) {
+            const couponEmbed = new EmbedBuilder()
+                .setTitle('🎟️ Discount Coupon Available!')
+                .setDescription(`You have available coupons! Would you like to apply a coupon to this purchase?`)
+                .setColor(0xFFD700);
 
-                    await tradeChannel.send({ content: `<@${interaction.user.id}>`, embeds: [couponEmbed], components: [couponRow] });
-                } else {
-                    const checkoutEmbed = new EmbedBuilder()
-                        .setTitle('🛍️ Secure Checkout Portal')
-                        .setDescription(`Order for **${productKey.toUpperCase()}**.\nTotal Price: \`$${productPrice} USD\``)
-                        .setColor(0x5865F2);
+            const couponRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`use_coupon_yes|${productKey}|${productPrice}`).setLabel('Use Coupon').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId(`use_coupon_no|${productKey}|${productPrice}`).setLabel('Skip Coupon').setStyle(ButtonStyle.Secondary)
+            );
 
-                    await tradeChannel.send({
-                        content: `<@${interaction.user.id}>`,
-                        embeds: [checkoutEmbed],
-                        components: [generatePaymentMenu(productKey, productPrice, tradeChannel.id), getCancelButtonRow()]
-                    });
-                }
+            await tradeChannel.send({ content: `<@${interaction.user.id}>`, embeds: [couponEmbed], components: [couponRow] });
+        } else {
+            const checkoutEmbed = new EmbedBuilder()
+                .setTitle('🛍️ Secure Checkout Portal')
+                .setDescription(`Order for **${productKey.toUpperCase()}**.\nTotal Price: \`$${productPrice} USD\``)
+                .setColor(0x5865F2);
 
-                await interaction.editReply({ content: `✅ Order channel created: <#${tradeChannel.id}>` });
-            } catch (err) {
-                console.error('Channel creation error:', err);
-                await interaction.editReply({ content: '❌ Failed to create trade channel.' });
-            }
+            await tradeChannel.send({
+                content: `<@${interaction.user.id}>`,
+                embeds: [checkoutEmbed],
+                components: [generatePaymentMenu(productKey, productPrice, tradeChannel.id), getCancelButtonRow()]
+            });
         }
+
+        await interaction.editReply({ content: `✅ Order channel created: <#${tradeChannel.id}>` });
+    } catch (err) {
+        console.error('Channel creation error:', err);
+        await interaction.editReply({ content: '❌ Failed to create trade channel. Ensure the bot has "Manage Channels" permissions.' });
+    }
+}
 
         if (customId.startsWith('use_coupon_yes|')) {
             const [, productKey, productPrice] = customId.split('|');

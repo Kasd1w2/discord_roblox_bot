@@ -178,6 +178,7 @@ function getCancelButtonRow() {
 }
 
 // --- STRIPE WEBHOOK ENDPOINT ---
+// --- STRIPE WEBHOOK ENDPOINT ---
 webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
     const signatureHeader = req.headers['stripe-signature'];
     let stripeEvent;
@@ -202,6 +203,7 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
             if (!userLedger) {
                 userLedger = new Ledger({ discordId: buyerDiscordId, purchases: [], points: 0, coupons: [] });
             }
+            
             const pointsEarned = calculatePoints(usdPricePaid);
             userLedger.points += pointsEarned;
 
@@ -246,13 +248,12 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
                     );
                     await deliveryMessage.react('✅');
                     await deliveryMessage.react('❌');
+                    
                     await orderChannel.send(`🙏 Thank you again for your business, <@${buyerDiscordId}>! If you have a moment, please drop a vouch in <#1542340439166820434>.`);
                 }
             }
-
         } catch (dbErr) {
             console.error('Error handling checkout completion webhook:', dbErr);
-        }
         }
     }
 

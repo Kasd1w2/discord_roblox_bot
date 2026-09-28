@@ -336,15 +336,15 @@ botClient.on('interactionCreate', async interaction => {
             const boostEmbed = new EmbedBuilder()
     .setTitle('<a:wumpus:1554265012338434078> Discord Boosting Service')
     .setDescription(
-        'Select a package below to upgrade your server instantly. Delivery is automated once payment clears.\n\n' +
+        'Select a package below to upgrade your server instantly.\n\n' +
         '**<a:Termss:1554267208882978896> Terms & Conditions**\n' +
-        '• **Duration:** 25–30 Days (Number of boosts included are mentioned in the product).\n' +
-        '• **No Warranty:** This service does not include a general warranty. No warranty is provided for the boosts.\n' +
-        '• **Non-Transferable:** Boosts cannot be transferred to another server or account.\n' +
-        '• **Preparation:** Please disable any anti-raid or security systems that may interfere with the boosting process. Make sure your servers aren\'t limited as they will make the boosters not join due to limitations.\n' +
-        '• **Invites:** We are not responsible if the server invite link provided is invalid, expired, or inaccessible.\n' +
-        '• **Support:** If you experience any issues, please contact us as soon as possible so we can assist you.\n\n' +
-        '<a:important:1554267188272308248> **Important:** Please ensure that all required server settings are properly configured before purchasing. By placing an order, you acknowledge and agree to all terms and conditions listed above.\n\n' +
+        '• **Duration:** Boosts remain active for 25–30 days (total boosts depend on your chosen tier).\n' +
+        '• **No Warranty:** All deliveries are final. We do not provide an ongoing replacement warranty for this service.\n' +
+        '• **Non-Transferable:** Once applied, boosts are locked in and cannot be moved to a different server.\n' +
+        '• **Server Prep:** You must disable anti-raid bots, verification gates, and server capacity limits before ordering, otherwise the boosters will fail to join.\n' +
+        '• **Invite Links:** You must provide a permanent, valid invite link. We are not liable for delivery failures caused by expired or broken links.\n' +
+        '• **Support:** Open a ticket immediately if you encounter any issues with your order so we can step in.\n\n' +
+        '<a:important:1554267188272308248> **Important:** By purchasing, you confirm your server is properly configured to receive members and that you agree to all terms above.\n\n' +
         '**<:price:1554267169800585227> Pricing Packages**'
     )
     .addFields(

@@ -337,7 +337,7 @@ botClient.on('interactionCreate', async interaction => {
     .setTitle('<a:wumpus:1554265012338434078> Discord Boosting Service')
     .setDescription(
         'Select a package below to upgrade your server instantly. Delivery is automated once payment clears.\n\n' +
-        '**<a:Terms~1:1554267208882978896> Terms & Conditions**\n' +
+        '**<a:Termss:1554267208882978896> Terms & Conditions**\n' +
         '• **Duration:** 25–30 Days (Number of boosts included are mentioned in the product).\n' +
         '• **No Warranty:** This service does not include a general warranty. No warranty is provided for the boosts.\n' +
         '• **Non-Transferable:** Boosts cannot be transferred to another server or account.\n' +

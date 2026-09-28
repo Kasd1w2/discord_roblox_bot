@@ -277,11 +277,11 @@ botClient.on('interactionCreate', async interaction => {
     if (interaction.isChatInputCommand()) {
         const commandLabel = interaction.commandName;
 
-        if (['setup-store', 'restock', 'remove-stock', 'deliver', 'close', 'coupon-store', 'give-coupon', 'view-points'].includes(commandLabel)) {
+        if (['setup-store', 'boost-menu','restock', 'remove-stock', 'deliver', 'close', 'coupon-store', 'give-coupon', 'view-points'].includes(commandLabel)) {
             if (!interaction.member.roles.cache.has(ADMIN_ROLE_ID)) {
                 return interaction.reply({ content: '🛑 You do not have permission to use this command.', flags: 64 });
             }
-        }
+        }   
 
         if (commandLabel === 'view-points') {
             await interaction.deferReply();
@@ -311,6 +311,39 @@ botClient.on('interactionCreate', async interaction => {
                 await interaction.editReply({ content: '❌ Failed to fetch user data from the database.' });
             }
         }
+        if (commandLabel === 'boost-menu') {
+            await interaction.deferReply({ flags: 64});
+            
+            const boostEmbed = new EmbedBuilder()
+                .setColor('#ff73fa')
+                .setTitle('🚀 1-Month Server Boost Packages')
+                .setDescription('Select a package below to upgrade your server instantly. Delivery is automated once payment clears.')
+                .setThumbnail('https://cdn.discordapp.com/emojis/967812163345006622.webp?size=128&quality=lossless')
+                .addFields(
+                    { name: '💎 2 Boosts (Level 1)', value: '```yaml\nPrice: $YOUR_PRICE\n```', inline: true },
+                    { name: '✨ 4 Boosts', value: '```yaml\nPrice: $YOUR_PRICE\n```', inline: true },
+                    { name: '✨ 6 Boosts', value: '```yaml\nPrice: $YOUR_PRICE\n```', inline: true },
+                    
+                    { name: '🔥 8 Boosts (Level 2+)', value: '```yaml\nPrice: $YOUR_PRICE\n```', inline: true },
+                    { name: '🔥 10 Boosts', value: '```yaml\nPrice: $YOUR_PRICE\n```', inline: true },
+                    { name: '🔥 12 Boosts', value: '```yaml\nPrice: $YOUR_PRICE\n```', inline: true },
+                    
+                    { name: '👑 14 Boosts (Level 3)', value: '```yaml\nPrice: $YOUR_PRICE\n```', inline: false }
+                )
+                .setFooter({ text: 'Valid for 30 Days' });
+
+            const purchaseBtn = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('buy_boost_ticket') // You can route this in your button interaction router later
+                    .setLabel('Purchase Boosts')
+                    .setEmoji('🛒')
+                    .setStyle(ButtonStyle.Primary)
+            );
+
+            await interaction.channel.send({ embeds: [boostEmbed], components: [purchaseBtn] });
+            await interaction.editReply({ content: '✅ Boost menu deployed successfully!' });
+        }
+
 
         if (commandLabel === 'give-coupon') {
             await interaction.deferReply({ flags: 64 });

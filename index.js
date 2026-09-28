@@ -334,23 +334,35 @@ botClient.on('interactionCreate', async interaction => {
             await interaction.deferReply({ flags: 64});
             
             const boostEmbed = new EmbedBuilder()
-                .setColor('#ff73fa')
-                .setTitle('🚀 1-Month Server Boost Packages')
-                .setDescription('Select a package below to upgrade your server instantly. Delivery is automated once payment clears.')
-                .setThumbnail('https://cdn.discordapp.com/emojis/967812163345006622.webp?size=128&quality=lossless')
-                .addFields(
-                    { name: '💎 2 Boosts (Level 1)', value: '```yaml\nPrice: $YOUR_PRICE\n```', inline: true },
-                    { name: '✨ 4 Boosts', value: '```yaml\nPrice: $YOUR_PRICE\n```', inline: true },
-                    { name: '✨ 6 Boosts', value: '```yaml\nPrice: $YOUR_PRICE\n```', inline: true },
-                    
-                    { name: '🔥 8 Boosts (Level 2+)', value: '```yaml\nPrice: $YOUR_PRICE\n```', inline: true },
-                    { name: '🔥 10 Boosts', value: '```yaml\nPrice: $YOUR_PRICE\n```', inline: true },
-                    { name: '🔥 12 Boosts', value: '```yaml\nPrice: $YOUR_PRICE\n```', inline: true },
-                    
-                    { name: '👑 14 Boosts (Level 3)', value: '```yaml\nPrice: $YOUR_PRICE\n```', inline: false }
-                )
-                .setFooter({ text: 'Valid for 30 Days' });
+    .setTitle('🚀 Discord Boosting Service')
+    .setDescription(
+        'Select a package below to upgrade your server instantly. Delivery is automated once payment clears.\n\n' +
+        '**💰 Pricing (1-Month Boosts)**\n' +
+        '> 💎 **2x Boosts** (Level 1) — `$0.99`\n' +
+        '> ✨ **4x Boosts** — `$1.75`\n' +
+        '> ✨ **6x Boosts** — `$2.25`\n' +
+        '> 🔥 **8x Boosts** (Level 2) — `$2.75`\n' +
+        '> 🔥 **10x Boosts** — `$3.25`\n' +
+        '> 🔥 **12x Boosts** — `$3.49`\n' +
+        '> 👑 **14x Boosts** (Level 3) — `$3.99`\n\n' +
+        '**📜 Terms & Conditions**\n' +
+        '• **Duration:** 25–30 Days (Number of boosts included are mentioned in the product).\n' +
+        '• **No Warranty:** This service does not include a general warranty. No warranty is provided for the boosts.\n' +
+        '• **Non-Transferable:** Boosts cannot be transferred to another server or account.\n' +
+        '• **Preparation:** Please disable any anti-raid or security systems that may interfere with the boosting process. Make sure your servers aren\'t limited as they will make the boosters not join due to limitations.\n' +
+        '• **Invites:** We are not responsible if the server invite link provided is invalid, expired, or inaccessible.\n' +
+        '• **Support:** If you experience any issues, please contact us as soon as possible so we can assist you.\n\n' +
+        '⚠️ **Important:** Please ensure that all required server settings are properly configured before purchasing. By placing an order, you acknowledge and agree to all terms and conditions listed above.'
+    )
+    .setColor(0xff73fa);
 
+const boostRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+        .setCustomId('buy_boost_ticket')
+        .setLabel('Purchase Boosts')
+        .setEmoji('🛒')
+        .setStyle(ButtonStyle.Primary)
+);
             const purchaseBtn = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
                     .setCustomId('buy_boost_ticket') // You can route this in your button interaction router later
@@ -796,17 +808,17 @@ botClient.on('interactionCreate', async interaction => {
 
         // Add the dropdown menu inside the ticket
         const packageMenu = new StringSelectMenuBuilder()
-            .setCustomId('select_boost_package')
-            .setPlaceholder('Select your boost package...')
-            .addOptions([
-                { label: '2 Boosts (Level 1)', value: '2_boosts|YOUR_PRICE', emoji: '💎' },
-                { label: '4 Boosts', value: '4_boosts|YOUR_PRICE', emoji: '✨' },
-                { label: '6 Boosts', value: '6_boosts|YOUR_PRICE', emoji: '✨' },
-                { label: '8 Boosts (Level 2+)', value: '8_boosts|YOUR_PRICE', emoji: '🔥' },
-                { label: '10 Boosts', value: '10_boosts|YOUR_PRICE', emoji: '🔥' },
-                { label: '12 Boosts', value: '12_boosts|YOUR_PRICE', emoji: '🔥' },
-                { label: '14 Boosts (Level 3)', value: '14_boosts|YOUR_PRICE', emoji: '👑' }
-            ]);
+    .setCustomId('select_boost_package')
+    .setPlaceholder('Select your boost package...')
+    .addOptions([
+        { label: '2x Boosts (Level 1)', value: '2_boosts|0.99', emoji: '💎' },
+        { label: '4x Boosts', value: '4_boosts|1.75', emoji: '✨' },
+        { label: '6x Boosts', value: '6_boosts|2.25', emoji: '✨' },
+        { label: '8x Boosts (Level 2)', value: '8_boosts|2.75', emoji: '🔥' },
+        { label: '10x Boosts', value: '10_boosts|3.25', emoji: '🔥' },
+        { label: '12x Boosts', value: '12_boosts|3.49', emoji: '🔥' },
+        { label: '14x Boosts (Level 3)', value: '14_boosts|3.99', emoji: '👑' }
+    ]);
 
         const welcomeEmbed = new EmbedBuilder()
             .setTitle('🚀 Server Boost Purchase')

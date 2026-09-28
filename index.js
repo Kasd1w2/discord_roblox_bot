@@ -337,14 +337,6 @@ botClient.on('interactionCreate', async interaction => {
     .setTitle('🚀 Discord Boosting Service')
     .setDescription(
         'Select a package below to upgrade your server instantly. Delivery is automated once payment clears.\n\n' +
-        '**💰 Pricing (1-Month Boosts)**\n' +
-        '> 💎 **2x Boosts** (Level 1) — `$0.99`\n' +
-        '> ✨ **4x Boosts** — `$1.75`\n' +
-        '> ✨ **6x Boosts** — `$2.25`\n' +
-        '> 🔥 **8x Boosts** (Level 2) — `$2.75`\n' +
-        '> 🔥 **10x Boosts** — `$3.25`\n' +
-        '> 🔥 **12x Boosts** — `$3.49`\n' +
-        '> 👑 **14x Boosts** (Level 3) — `$3.99`\n\n' +
         '**📜 Terms & Conditions**\n' +
         '• **Duration:** 25–30 Days (Number of boosts included are mentioned in the product).\n' +
         '• **No Warranty:** This service does not include a general warranty. No warranty is provided for the boosts.\n' +
@@ -352,7 +344,18 @@ botClient.on('interactionCreate', async interaction => {
         '• **Preparation:** Please disable any anti-raid or security systems that may interfere with the boosting process. Make sure your servers aren\'t limited as they will make the boosters not join due to limitations.\n' +
         '• **Invites:** We are not responsible if the server invite link provided is invalid, expired, or inaccessible.\n' +
         '• **Support:** If you experience any issues, please contact us as soon as possible so we can assist you.\n\n' +
-        '⚠️ **Important:** Please ensure that all required server settings are properly configured before purchasing. By placing an order, you acknowledge and agree to all terms and conditions listed above.'
+        '⚠️ **Important:** Please ensure that all required server settings are properly configured before purchasing. By placing an order, you acknowledge and agree to all terms and conditions listed above.\n\n' +
+        '**💰 Pricing Packages**'
+    )
+    .addFields(
+        // Note: Replace the standard emojis below with your custom server emoji codes (e.g., <:crystal:123456789>)
+        { name: '💎 2x Boosts (Level 1)', value: '```bash\nPrice:\n$0.99\n```', inline: true },
+        { name: '✨ 4x Boosts', value: '```bash\nPrice:\n$1.75\n```', inline: true },
+        { name: '✨ 6x Boosts', value: '```bash\nPrice:\n$2.25\n```', inline: true },
+        { name: '🔥 8x Boosts (Level 2)', value: '```bash\nPrice:\n$2.75\n```', inline: true },
+        { name: '🔥 10x Boosts', value: '```bash\nPrice:\n$3.25\n```', inline: true },
+        { name: '🔥 12x Boosts', value: '```bash\nPrice:\n$3.49\n```', inline: true },
+        { name: '👑 14x Boosts (Level 3)', value: '```bash\nPrice:\n$3.99\n```', inline: true }
     )
     .setColor(0xff73fa);
 
@@ -363,6 +366,8 @@ const boostRow = new ActionRowBuilder().addComponents(
         .setEmoji('🛒')
         .setStyle(ButtonStyle.Primary)
 );
+
+// await interaction.reply({ embeds: [boostEmbed], components: [boostRow] });
             const purchaseBtn = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
                     .setCustomId('buy_boost_ticket') // You can route this in your button interaction router later

@@ -1172,6 +1172,7 @@ const boostRow = new ActionRowBuilder().addComponents(
         await interaction.reply({ embeds: [confirmationEmbed] });
         await interaction.channel.send(`🔔 <@&${ADMIN_ROLE_ID}>, <@${interaction.user.id}> submitted transaction proof for **${productKey}**!`);
     }
+}
 });
 
 // START SERVER & LOGIN

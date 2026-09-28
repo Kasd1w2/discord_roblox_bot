@@ -218,7 +218,7 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
                     await orderChannel.send(
                         `✅ **Payment Confirmed!** Thank you for your purchase, <@${buyerDiscordId}>.\n` +
                         `⭐ You earned **${pointsEarned} points** for this transaction!\n\n` +
-                        `🔔 <@&${ADMIN_ROLE_ID}> **A boost package has been paid for and requires manual delivery!**`
+                        `<a:be:1554263397842026507> <@&${ADMIN_ROLE_ID}> **A boost package has been paid for and requires manual delivery!**`
                     );
                 }
             } 
@@ -321,7 +321,7 @@ botClient.on('interactionCreate', async interaction => {
                     .addFields(
                         { name: '⭐ Points Balance', value: `\`${points}\``, inline: true },
                         { name: '🎟️ Unused Coupons', value: `\`${coupons}\``, inline: true },
-                        { name: '🛒 Total Purchases', value: `\`${purchaseCount}\``, inline: true }
+                        { name: '<a:shop1:1554264889491726377> Total Purchases', value: `\`${purchaseCount}\``, inline: true }
                     );
 
                 await interaction.editReply({ embeds: [profileEmbed] });
@@ -334,28 +334,28 @@ botClient.on('interactionCreate', async interaction => {
             await interaction.deferReply({ flags: 64});
             
             const boostEmbed = new EmbedBuilder()
-    .setTitle('🚀 Discord Boosting Service')
+    .setTitle('<a:wumpus:1554265012338434078: Discord Boosting Service')
     .setDescription(
         'Select a package below to upgrade your server instantly. Delivery is automated once payment clears.\n\n' +
-        '**📜 Terms & Conditions**\n' +
+        '**<a:Terms~1:1554267208882978896> Terms & Conditions**\n' +
         '• **Duration:** 25–30 Days (Number of boosts included are mentioned in the product).\n' +
         '• **No Warranty:** This service does not include a general warranty. No warranty is provided for the boosts.\n' +
         '• **Non-Transferable:** Boosts cannot be transferred to another server or account.\n' +
         '• **Preparation:** Please disable any anti-raid or security systems that may interfere with the boosting process. Make sure your servers aren\'t limited as they will make the boosters not join due to limitations.\n' +
         '• **Invites:** We are not responsible if the server invite link provided is invalid, expired, or inaccessible.\n' +
         '• **Support:** If you experience any issues, please contact us as soon as possible so we can assist you.\n\n' +
-        '⚠️ **Important:** Please ensure that all required server settings are properly configured before purchasing. By placing an order, you acknowledge and agree to all terms and conditions listed above.\n\n' +
-        '**💰 Pricing Packages**'
+        '<a:important:1554267188272308248> **Important:** Please ensure that all required server settings are properly configured before purchasing. By placing an order, you acknowledge and agree to all terms and conditions listed above.\n\n' +
+        '**<:price:1554267169800585227> Pricing Packages**'
     )
     .addFields(
         // Note: Replace the standard emojis below with your custom server emoji codes (e.g., <:crystal:123456789>)
-        { name: '💎 2x Boosts (Level 1)', value: '```bash\nPrice:\n$0.99\n```', inline: true },
-        { name: '✨ 4x Boosts', value: '```bash\nPrice:\n$1.75\n```', inline: true },
-        { name: '✨ 6x Boosts', value: '```bash\nPrice:\n$2.25\n```', inline: true },
-        { name: '🔥 8x Boosts (Level 2)', value: '```bash\nPrice:\n$2.75\n```', inline: true },
-        { name: '🔥 10x Boosts', value: '```bash\nPrice:\n$3.25\n```', inline: true },
-        { name: '🔥 12x Boosts', value: '```bash\nPrice:\n$3.49\n```', inline: true },
-        { name: '👑 14x Boosts (Level 3)', value: '```bash\nPrice:\n$3.99\n```', inline: true }
+        { name: '<a:boost~1:1554263092244906005> 2x Boosts (Level 1)', value: '```bash\nPrice:\n$0.99\n```', inline: true },
+        { name: '<a:boost~1:1554263092244906005 4x Boosts', value: '```bash\nPrice:\n$1.75\n```', inline: true },
+        { name: '<a:boost~1:1554263092244906005 6x Boosts', value: '```bash\nPrice:\n$2.25\n```', inline: true },
+        { name: '<a:boost~1:1554263092244906005 8x Boosts (Level 2)', value: '```bash\nPrice:\n$2.75\n```', inline: true },
+        { name: '<a:boost~1:1554263092244906005 10x Boosts', value: '```bash\nPrice:\n$3.25\n```', inline: true },
+        { name: '<a:boost~1:1554263092244906005 12x Boosts', value: '```bash\nPrice:\n$3.49\n```', inline: true },
+        { name: '<a:boost~1:1554263092244906005 14x Boosts (Level 3)', value: '```bash\nPrice:\n$3.99\n```', inline: true }
     )
     .setColor(0xff73fa);
 
@@ -363,7 +363,7 @@ const boostRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
         .setCustomId('buy_boost_ticket')
         .setLabel('Purchase Boosts')
-        .setEmoji('🛒')
+        .setEmoji('<a:shop1:1554264889491726377>')
         .setStyle(ButtonStyle.Primary)
 );
 
@@ -372,7 +372,7 @@ const boostRow = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
                     .setCustomId('buy_boost_ticket') // You can route this in your button interaction router later
                     .setLabel('Purchase Boosts')
-                    .setEmoji('🛒')
+                    .setEmoji('<a:shop1:1554264889491726377>')
                     .setStyle(ButtonStyle.Primary)
             );
 
@@ -413,7 +413,7 @@ const boostRow = new ActionRowBuilder().addComponents(
 
             const couponMenu = new StringSelectMenuBuilder()
                 .setCustomId('buy_coupon')
-                .setPlaceholder('🛒 Select a coupon to purchase...')
+                .setPlaceholder('<a:shop1:1554264889491726377> Select a coupon to purchase...')
                 .addOptions([
                     { label: '10% Discount Coupon', description: 'Costs 5 points', value: '10' },
                     { label: '15% Discount Coupon', description: 'Costs 10 points', value: '15' }
@@ -725,7 +725,7 @@ const boostRow = new ActionRowBuilder().addComponents(
                     await tradeChannel.send({ content: `<@${interaction.user.id}>`, embeds: [couponEmbed], components: [couponRow] });
                 } else {
                     const checkoutEmbed = new EmbedBuilder()
-                        .setTitle('🛍️ Secure Checkout Portal')
+                        .setTitle('<:tick:1554263289045712976> Secure Checkout Portal')
                         .setDescription(`Order for **${productKey.toUpperCase()}**.\nTotal Price: \`$${productPrice} USD\``)
                         .setColor(0x5865F2);
 
@@ -771,7 +771,7 @@ const boostRow = new ActionRowBuilder().addComponents(
     const formattedName = productKey.replace(/_/g, ' ').toUpperCase(); 
 
     const polishedEmbed = new EmbedBuilder()
-        .setTitle('🛍️ Secure Checkout Portal')
+        .setTitle('<:tick:1554263289045712976> Secure Checkout Portal')
         .setDescription(`Order for **${formattedName}**.\nTotal Price: \`$${productPrice} USD\``)
         .setColor(0x5865F2);
 
@@ -907,7 +907,7 @@ const boostRow = new ActionRowBuilder().addComponents(
         await interaction.editReply({ embeds: [couponEmbed], components: [couponRow] });
     } else {
         const checkoutEmbed = new EmbedBuilder()
-            .setTitle('🛍️ Secure Checkout Portal')
+            .setTitle('<:tick:1554263289045712976> Secure Checkout Portal')
             .setDescription(`Order for **${productKey.toUpperCase().replace('_', ' ')}**.\nTotal Price: \`$${productPrice} USD\``)
             .setColor(0x5865F2);
 
@@ -1076,7 +1076,7 @@ const boostRow = new ActionRowBuilder().addComponents(
     const newPrice = (parseFloat(originalPrice) * (1 - (discountPct / 100))).toFixed(2);
     
     const discountedEmbed = new EmbedBuilder()
-        .setTitle('🛍️ Secure Checkout Portal (Discount Applied)')
+        .setTitle('<:tick:1554263289045712976> Secure Checkout Portal (Discount Applied)')
         .setDescription(`Order for **${formattedName}**\nNew Price: \`$${newPrice} USD\` 🎉`)
         .setColor(0x00FF00);
 
@@ -1175,7 +1175,7 @@ const boostRow = new ActionRowBuilder().addComponents(
             .setColor(0x00FF00);
 
         await interaction.reply({ embeds: [confirmationEmbed] });
-        await interaction.channel.send(`🔔 <@&${ADMIN_ROLE_ID}>, <@${interaction.user.id}> submitted transaction proof for **${productKey}**!`);
+        await interaction.channel.send(`<a:be:1554263397842026507 <@&${ADMIN_ROLE_ID}>, <@${interaction.user.id}> submitted transaction proof for **${productKey}**!`);
     }
 }
 });

@@ -754,6 +754,88 @@ botClient.on('interactionCreate', async interaction => {
             setTimeout(() => interaction.channel.delete().catch(() => { }), 2000);
         }
 
+        if (customId === 'buy_boost_ticket') {
+    await interaction.deferReply({ flags: 64 });
+    
+    const sanitizedUsername = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
+    
+    try {
+        const ticketChannel = await interaction.guild.channels.create({
+            name: `boosts-${sanitizedUsername}`.substring(0, 100),
+            type: ChannelType.GuildText,
+            permissionOverwrites: [
+                { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+                { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                { id: botClient.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                { id: ADMIN_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
+            ]
+        });
+
+        // Add the dropdown menu inside the ticket
+        const packageMenu = new StringSelectMenuBuilder()
+            .setCustomId('select_boost_package')
+            .setPlaceholder('Select your boost package...')
+            .addOptions([
+                { label: '2 Boosts (Level 1)', value: '2_boosts|YOUR_PRICE', emoji: '💎' },
+                { label: '4 Boosts', value: '4_boosts|YOUR_PRICE', emoji: '✨' },
+                { label: '6 Boosts', value: '6_boosts|YOUR_PRICE', emoji: '✨' },
+                { label: '8 Boosts (Level 2+)', value: '8_boosts|YOUR_PRICE', emoji: '🔥' },
+                { label: '10 Boosts', value: '10_boosts|YOUR_PRICE', emoji: '🔥' },
+                { label: '12 Boosts', value: '12_boosts|YOUR_PRICE', emoji: '🔥' },
+                { label: '14 Boosts (Level 3)', value: '14_boosts|YOUR_PRICE', emoji: '👑' }
+            ]);
+
+        const welcomeEmbed = new EmbedBuilder()
+            .setTitle('🚀 Server Boost Purchase')
+            .setDescription(`Welcome <@${interaction.user.id}>!\n\nPlease select the exact package you want from the menu below to calculate pricing and apply any coupons.`)
+            .setColor(0xff73fa);
+
+        await ticketChannel.send({
+            content: `<@${interaction.user.id}>`,
+            embeds: [welcomeEmbed],
+            components: [new ActionRowBuilder().addComponents(packageMenu), getCancelButtonRow()]
+        });
+
+        await interaction.editReply({ content: `✅ Boost ticket created: <#${ticketChannel.id}>` });
+    } catch (err) {
+        console.error('Boost ticket error:', err);
+        await interaction.editReply({ content: '❌ Failed to create boost ticket.' });
+    }
+}
+
+if (customId === 'select_boost_package') {
+    await interaction.deferUpdate();
+    
+    // Grabs the item and price from the dropdown value you set above
+    const [productKey, productPrice] = interaction.values[0].split('|');
+    
+    let userLedger = await Ledger.findOne({ discordId: interaction.user.id });
+
+    // Exact same coupon logic from your single-item forum posts
+    if (userLedger && userLedger.coupons && userLedger.coupons.length > 0) {
+        const couponEmbed = new EmbedBuilder()
+            .setTitle('🎟️ Discount Coupon Available!')
+            .setDescription(`You have available coupons! Would you like to apply a coupon to this purchase?`)
+            .setColor(0xFFD700);
+
+        const couponRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`use_coupon_yes|${productKey}\vert{}${productPrice}`).setLabel('Use Coupon').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`use_coupon_no|${productKey}\vert{}${productPrice}`).setLabel('Skip Coupon').setStyle(ButtonStyle.Secondary)
+        );
+
+        await interaction.editReply({ embeds: [couponEmbed], components: [couponRow] });
+    } else {
+        const checkoutEmbed = new EmbedBuilder()
+            .setTitle('🛍️ Secure Checkout Portal')
+            .setDescription(`Order for **${productKey.toUpperCase().replace('_', ' ')}**.\nTotal Price: \`$${productPrice} USD\``)
+            .setColor(0x5865F2);
+
+        await interaction.editReply({
+            embeds: [checkoutEmbed],
+            components: [generatePaymentMenu(productKey, productPrice, interaction.channel.id), getCancelButtonRow()]
+        });
+    }
+}
         if (customId.startsWith('create_user_ticket|')) {
             await interaction.deferReply({ flags: 64 });
             const [, categoryName] = customId.split('|');

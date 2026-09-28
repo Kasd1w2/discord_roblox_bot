@@ -729,17 +729,21 @@ botClient.on('interactionCreate', async interaction => {
         }
 
         if (customId.startsWith('use_coupon_no|')) {
-            const [, productKey, productPrice] = customId.split('|');
-            const polishedEmbed = new EmbedBuilder()
-                .setTitle('🛍️ Secure Checkout Portal')
-                .setDescription(`Order for **${productKey.toUpperCase()}**.\nTotal Price: \`$${productPrice} USD\``)
-                .setColor(0x5865F2);
+    const [, productKey, productPrice] = customId.split('|');
+    
+    // Removes underscores and capitalizes (e.g., "6_boosts" -> "6 BOOSTS")
+    const formattedName = productKey.replace(/_/g, ' ').toUpperCase(); 
 
-            await interaction.update({
-                embeds: [polishedEmbed],
-                components: [generatePaymentMenu(productKey, productPrice, interaction.channelId), getCancelButtonRow()]
-            });
-        }
+    const polishedEmbed = new EmbedBuilder()
+        .setTitle('🛍️ Secure Checkout Portal')
+        .setDescription(`Order for **${formattedName}**.\nTotal Price: \`$${productPrice} USD\``)
+        .setColor(0x5865F2);
+
+    await interaction.update({
+        embeds: [polishedEmbed],
+        components: [generatePaymentMenu(productKey, productPrice, interaction.channelId), getCancelButtonRow()]
+    });
+}
 
         if (customId.startsWith('open_tx_modal|')) {
             const [, productKey] = customId.split('|');
@@ -1028,18 +1032,23 @@ botClient.on('interactionCreate', async interaction => {
             const couponIndex = userLedger.coupons.indexOf(discountPct);
 
             if (couponIndex > -1) {
-                userLedger.coupons.splice(couponIndex, 1);
-                await userLedger.save();
+    userLedger.coupons.splice(couponIndex, 1);
+    await userLedger.save();
 
-                const newPrice = (parseFloat(originalPrice) * (1 - (discountPct / 100))).toFixed(2);
-                const discountedEmbed = new EmbedBuilder()
-                    .setTitle('🛍️ Secure Checkout Portal (Discount Applied)')
-                    .setDescription(`Order for **${productKey.toUpperCase()}**\nNew Price: \`$${newPrice} USD\` 🎉`)
-                    .setColor(0x00FF00);
+    // Removes underscores and capitalizes (e.g., "6_boosts" -> "6 BOOSTS")
+    const formattedName = productKey.replace(/_/g, ' ').toUpperCase();
+    const newPrice = (parseFloat(originalPrice) * (1 - (discountPct / 100))).toFixed(2);
+    
+    const discountedEmbed = new EmbedBuilder()
+        .setTitle('🛍️ Secure Checkout Portal (Discount Applied)')
+        .setDescription(`Order for **${formattedName}**\nNew Price: \`$${newPrice} USD\` 🎉`)
+        .setColor(0x00FF00);
 
-                await interaction.editReply({ embeds: [discountedEmbed], components: [generatePaymentMenu(productKey, newPrice, interaction.channel.id), getCancelButtonRow()] });
-            }
-        }
+    await interaction.editReply({ 
+        embeds: [discountedEmbed], 
+        components: [generatePaymentMenu(productKey, newPrice, interaction.channel.id), getCancelButtonRow()] 
+    });
+}
 
         if (customId.startsWith('payment_select|')) {
             const [, productKey, productPrice, channelId] = customId.split('|');

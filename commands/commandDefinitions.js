@@ -43,6 +43,10 @@ module.exports = [
         .setDescription('Check available inventory stock levels'),
 
     new SlashCommandBuilder()
+    .setName("boost-menu")
+    .setDescription('Spawn boosts menu'),
+
+    new SlashCommandBuilder()
         .setName('remove-stock')
         .setDescription('Remove specific codes from an item (Admin)')
         .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID key').setRequired(true))

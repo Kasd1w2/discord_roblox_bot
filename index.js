@@ -334,7 +334,7 @@ botClient.on('interactionCreate', async interaction => {
             await interaction.deferReply({ flags: 64});
             
             const boostEmbed = new EmbedBuilder()
-    .setTitle('<a:wumpus:1554265012338434078: Discord Boosting Service')
+    .setTitle('<a:wumpus:1554265012338434078> Discord Boosting Service')
     .setDescription(
         'Select a package below to upgrade your server instantly. Delivery is automated once payment clears.\n\n' +
         '**<a:Terms~1:1554267208882978896> Terms & Conditions**\n' +
@@ -349,13 +349,13 @@ botClient.on('interactionCreate', async interaction => {
     )
     .addFields(
         // Note: Replace the standard emojis below with your custom server emoji codes (e.g., <:crystal:123456789>)
-        { name: '<a:boost~1:1554263092244906005> 2x Boosts (Level 1)', value: '```bash\nPrice:\n$0.99\n```', inline: true },
-        { name: '<a:boost~1:1554263092244906005 4x Boosts', value: '```bash\nPrice:\n$1.75\n```', inline: true },
-        { name: '<a:boost~1:1554263092244906005 6x Boosts', value: '```bash\nPrice:\n$2.25\n```', inline: true },
-        { name: '<a:boost~1:1554263092244906005 8x Boosts (Level 2)', value: '```bash\nPrice:\n$2.75\n```', inline: true },
-        { name: '<a:boost~1:1554263092244906005 10x Boosts', value: '```bash\nPrice:\n$3.25\n```', inline: true },
-        { name: '<a:boost~1:1554263092244906005 12x Boosts', value: '```bash\nPrice:\n$3.49\n```', inline: true },
-        { name: '<a:boost~1:1554263092244906005 14x Boosts (Level 3)', value: '```bash\nPrice:\n$3.99\n```', inline: true }
+        { name: '<a:boostlogo:1554263092244906005> 2x Boosts (Level 1)', value: '```bash\nPrice:\n$0.99\n```', inline: true },
+        { name: '<a:boostlogo:1554263092244906005> 4x Boosts', value: '```bash\nPrice:\n$1.75\n```', inline: true },
+        { name: '<a:boostlogo:1554263092244906005> 6x Boosts', value: '```bash\nPrice:\n$2.25\n```', inline: true },
+        { name: '<a:boostlogo:1554263092244906005> 8x Boosts (Level 2)', value: '```bash\nPrice:\n$2.75\n```', inline: true },
+        { name: '<a:boostlogo:1554263092244906005> 10x Boosts', value: '```bash\nPrice:\n$3.25\n```', inline: true },
+        { name: '<a:boostlogo:1554263092244906005> 12x Boosts', value: '```bash\nPrice:\n$3.49\n```', inline: true },
+        { name: '<a:boostlogo:1554263092244906005> 14x Boosts (Level 3)', value: '```bash\nPrice:\n$3.99\n```', inline: true }
     )
     .setColor(0xff73fa);
 

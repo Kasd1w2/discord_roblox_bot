@@ -334,8 +334,8 @@ botClient.on('interactionCreate', async interaction => {
             await interaction.deferReply({ flags: 64});
             
             const boostEmbed = new EmbedBuilder()
-    .setTitle('<a:wumpus:1554265012338434078> Discord Boosting Service')
     .setDescription(
+        '# <a:wumpus:1554265012338434078> Discord Boosting Service\n\n' +
         'Select a package below to upgrade your server instantly.\n\n' +
         '**<a:Termss:1554267208882978896> Terms & Conditions**\n' +
         '• **Duration:** Boosts remain active for 25–30 days (total boosts depend on your chosen tier).\n' +

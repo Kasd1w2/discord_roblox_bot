@@ -761,7 +761,7 @@ botClient.on('interactionCreate', async interaction => {
     
     try {
         const ticketChannel = await interaction.guild.channels.create({
-            name: `boosts-${sanitizedUsername}`.substring(0, 100),
+            name: `trade-${sanitizedUsername}-boosts`.substring(0, 100),
             type: ChannelType.GuildText,
             permissionOverwrites: [
                 { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
@@ -803,39 +803,7 @@ botClient.on('interactionCreate', async interaction => {
     }
 }
 
-if (customId === 'select_boost_package') {
-    await interaction.deferUpdate();
-    
-    // Grabs the item and price from the dropdown value you set above
-    const [productKey, productPrice] = interaction.values[0].split('|');
-    
-    let userLedger = await Ledger.findOne({ discordId: interaction.user.id });
 
-    // Exact same coupon logic from your single-item forum posts
-    if (userLedger && userLedger.coupons && userLedger.coupons.length > 0) {
-        const couponEmbed = new EmbedBuilder()
-            .setTitle('🎟️ Discount Coupon Available!')
-            .setDescription(`You have available coupons! Would you like to apply a coupon to this purchase?`)
-            .setColor(0xFFD700);
-
-        const couponRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`use_coupon_yes|${productKey}\vert{}${productPrice}`).setLabel('Use Coupon').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId(`use_coupon_no|${productKey}\vert{}${productPrice}`).setLabel('Skip Coupon').setStyle(ButtonStyle.Secondary)
-        );
-
-        await interaction.editReply({ embeds: [couponEmbed], components: [couponRow] });
-    } else {
-        const checkoutEmbed = new EmbedBuilder()
-            .setTitle('🛍️ Secure Checkout Portal')
-            .setDescription(`Order for **${productKey.toUpperCase().replace('_', ' ')}**.\nTotal Price: \`$${productPrice} USD\``)
-            .setColor(0x5865F2);
-
-        await interaction.editReply({
-            embeds: [checkoutEmbed],
-            components: [generatePaymentMenu(productKey, productPrice, interaction.channel.id), getCancelButtonRow()]
-        });
-    }
-}
         if (customId.startsWith('create_user_ticket|')) {
             await interaction.deferReply({ flags: 64 });
             const [, categoryName] = customId.split('|');
@@ -876,6 +844,39 @@ if (customId === 'select_boost_package') {
     if (interaction.isStringSelectMenu()) {
         const customId = interaction.customId;
 
+        if (customId === 'select_boost_package') {
+    await interaction.deferUpdate();
+    
+    // Grabs the item and price from the dropdown value you set above
+    const [productKey, productPrice] = interaction.values[0].split('|');
+    
+    let userLedger = await Ledger.findOne({ discordId: interaction.user.id });
+
+    // Exact same coupon logic from your single-item forum posts
+    if (userLedger && userLedger.coupons && userLedger.coupons.length > 0) {
+        const couponEmbed = new EmbedBuilder()
+            .setTitle('🎟️ Discount Coupon Available!')
+            .setDescription(`You have available coupons! Would you like to apply a coupon to this purchase?`)
+            .setColor(0xFFD700);
+
+        const couponRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`use_coupon_yes|${productKey}\vert{}${productPrice}`).setLabel('Use Coupon').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`use_coupon_no|${productKey}\vert{}${productPrice}`).setLabel('Skip Coupon').setStyle(ButtonStyle.Secondary)
+        );
+
+        await interaction.editReply({ embeds: [couponEmbed], components: [couponRow] });
+    } else {
+        const checkoutEmbed = new EmbedBuilder()
+            .setTitle('🛍️ Secure Checkout Portal')
+            .setDescription(`Order for **${productKey.toUpperCase().replace('_', ' ')}**.\nTotal Price: \`$${productPrice} USD\``)
+            .setColor(0x5865F2);
+
+        await interaction.editReply({
+            embeds: [checkoutEmbed],
+            components: [generatePaymentMenu(productKey, productPrice, interaction.channel.id), getCancelButtonRow()]
+        });
+    }
+}
         if (customId === 'buy_coupon') {
             await interaction.deferReply({ flags: 64 });
             const discountPct = parseInt(interaction.values[0]);

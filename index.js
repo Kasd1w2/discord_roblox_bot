@@ -196,45 +196,63 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         const usdPricePaid = session.amount_total / 100;
 
         try {
-            updateBotStatus(`💳 Payment received! Auto-delivering ${targetItemId.toUpperCase()}...`);
-
-            const itemRecord = await Inventory.findOne({ itemId: targetItemId });
-
-            if (!itemRecord || itemRecord.codes.length === 0) {
-                console.error(`CRITICAL: User ${buyerDiscordId} paid for ${targetItemId} but stock is empty!`);
-                updateBotStatus(`⚠️ ERROR: Stock empty for ${targetItemId.toUpperCase()}!`);
-                return res.status(200).json({ received: true });
-            }
-
-            const purchasedCode = itemRecord.codes.shift();
-            await itemRecord.save();
+            updateBotStatus(`💳 Payment received! Processing ${targetItemId.toUpperCase()}...`);
 
             let userLedger = await Ledger.findOne({ discordId: buyerDiscordId });
             if (!userLedger) {
                 userLedger = new Ledger({ discordId: buyerDiscordId, purchases: [], points: 0, coupons: [] });
             }
-
             const pointsEarned = calculatePoints(usdPricePaid);
-            userLedger.purchases.push({ item: targetItemId, code: purchasedCode });
             userLedger.points += pointsEarned;
-            await userLedger.save();
 
             const orderChannel = await botClient.channels.fetch(channelId);
-            if (orderChannel) {
-                const deliveryMessage = await orderChannel.send(
-                    `✅ **Payment Confirmed!** Thank you for your purchase, <@${buyerDiscordId}>.\n` +
-                    `⭐ You earned **${pointsEarned} points** for this transaction!\n\n` +
-                    `Here is your code for **${targetItemId}**:\n` +
-                    `\`\`\`${purchasedCode}\`\`\`\n` +
-                    `Please use the reactions below to confirm delivery or report an issue.`
-                );
-                await deliveryMessage.react('✅');
-                await deliveryMessage.react('❌');
-                await orderChannel.send(`🙏 Thank you again for your business, <@${buyerDiscordId}>! If you have a moment, please drop a vouch in <#1542340439166820434>.`);
+
+            // 1. IF IT'S A BOOST PACKAGE (No inventory code needed)
+            if (targetItemId.includes('boosts')) {
+                userLedger.purchases.push({ item: targetItemId, code: 'Server Boost Service' });
+                await userLedger.save();
+
+                if (orderChannel) {
+                    await orderChannel.send(
+                        `✅ **Payment Confirmed!** Thank you for your purchase, <@${buyerDiscordId}>.\n` +
+                        `⭐ You earned **${pointsEarned} points** for this transaction!\n\n` +
+                        `🔔 <@&${ADMIN_ROLE_ID}> **A boost package has been paid for and requires manual delivery!**`
+                    );
+                }
+            } 
+            // 2. IF IT'S A NORMAL ACCOUNT/ITEM (Requires inventory code)
+            else {
+                const itemRecord = await Inventory.findOne({ itemId: targetItemId });
+
+                if (!itemRecord || itemRecord.codes.length === 0) {
+                    console.error(`CRITICAL: User ${buyerDiscordId} paid for ${targetItemId} but stock is empty!`);
+                    updateBotStatus(`⚠️ ERROR: Stock empty for ${targetItemId.toUpperCase()}!`);
+                    return res.status(200).json({ received: true });
+                }
+
+                const purchasedCode = itemRecord.codes.shift();
+                await itemRecord.save();
+                
+                userLedger.purchases.push({ item: targetItemId, code: purchasedCode });
+                await userLedger.save();
+
+                if (orderChannel) {
+                    const deliveryMessage = await orderChannel.send(
+                        `✅ **Payment Confirmed!** Thank you for your purchase, <@${buyerDiscordId}>.\n` +
+                        `⭐ You earned **${pointsEarned} points** for this transaction!\n\n` +
+                        `Here is your code for **${targetItemId}**:\n` +
+                        `\`\`\`${purchasedCode}\`\`\`\n` +
+                        `Please use the reactions below to confirm delivery or report an issue.`
+                    );
+                    await deliveryMessage.react('✅');
+                    await deliveryMessage.react('❌');
+                    await orderChannel.send(`🙏 Thank you again for your business, <@${buyerDiscordId}>! If you have a moment, please drop a vouch in <#1542340439166820434>.`);
+                }
             }
 
         } catch (dbErr) {
             console.error('Error handling checkout completion webhook:', dbErr);
+        }
         }
     }
 

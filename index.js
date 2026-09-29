@@ -1085,6 +1085,7 @@ const boostRow = new ActionRowBuilder().addComponents(
         components: [generatePaymentMenu(productKey, newPrice, interaction.channel.id), getCancelButtonRow()] 
     });
 }
+        }
 
         if (customId.startsWith('payment_select|')) {
             const [, productKey, productPrice, channelId] = customId.split('|');
@@ -1099,7 +1100,7 @@ const boostRow = new ActionRowBuilder().addComponents(
                     line_items: [{
                         price_data: {
                             currency: 'usd',
-                            product_data: { name: productKey.toUpperCase() },
+                            product_data: { name: productKey.toUpperCase() + ' (+5% Fee)' },
                             unit_amount: Math.round(parseFloat(productPrice) * 100),
                         },
                         quantity: 1,

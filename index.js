@@ -1095,13 +1095,18 @@ const boostRow = new ActionRowBuilder().addComponents(
             if (selectedValue === 'select_stripe') {
                 await interaction.deferUpdate();
 
+                // Calculate the 5% processing fee
+                const feeAmount = (parseFloat(productPrice) * 0.05);
+                const finalPrice = (parseFloat(productPrice) + feeAmount).toFixed(2);
+
                 const stripeSession = await stripe.checkout.sessions.create({
                     payment_method_types: ['card'],
                     line_items: [{
                         price_data: {
                             currency: 'usd',
-                            product_data: { name: productKey.toUpperCase() + ' (+5% Fee)' },
-                            unit_amount: Math.round(parseFloat(productPrice) * 100),
+                            product_data: { name: productKey.toUpperCase() + ' (+5% Processing Fee)' },
+                            // Update the unit amount to charge the final price with the fee included
+                            unit_amount: Math.round(parseFloat(finalPrice) * 100),
                         },
                         quantity: 1,
                     }],
@@ -1117,10 +1122,15 @@ const boostRow = new ActionRowBuilder().addComponents(
 
                 const checkoutEmbed = new EmbedBuilder()
                     .setTitle('💳 Stripe Card Checkout')
-                    .setDescription(`Click below to pay safely. Delivery is automated once paid.`)
+                    .setDescription(`Click below to pay safely. Delivery is automated once paid.\n\n⚠️️ *A 5% processing fee ($${feeAmount.toFixed(2)}) has been added to your total.*`)
                     .setColor(0x635BFF);
 
-                const payBtn = new ButtonBuilder().setLabel(`Pay $${productPrice} via Stripe`).setURL(stripeSession.url).setStyle(ButtonStyle.Link);
+                // Update the button label to show the final price with the fee included
+                const payBtn = new ButtonBuilder()
+                    .setLabel(`Pay $${finalPrice} via Stripe`)
+                    .setURL(stripeSession.url)
+                    .setStyle(ButtonStyle.Link);
+                
                 await orderChannel.send({ embeds: [checkoutEmbed], components: [new ActionRowBuilder().addComponents(payBtn, getCancelButtonRow().components[0])] });
                 await interaction.message.delete().catch(() => { });
             }

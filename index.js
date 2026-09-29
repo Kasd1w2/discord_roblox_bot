@@ -160,10 +160,10 @@ function calculatePoints(usdPrice) {
 function generatePaymentMenu(productKey, productPrice, channelId) {
     const selectMenu = new StringSelectMenuBuilder()
         .setCustomId(`payment_select|${productKey}|${productPrice}|${channelId}`)
-        .setPlaceholder('📂 Choose your payment method...')
+        .setPlaceholder('Choose your payment method...')
         .addOptions([
-            { label: 'Pay with Card (Stripe)', description: 'Instant automated delivery via Credit/Debit card', value: 'select_stripe', emoji: '💳' },
-            { label: 'Pay with Cryptocurrency', description: 'Pay using ETH, LTC, BTC, or SOL', value: 'select_crypto', emoji: '🪙' }
+            { label: 'Pay with Card (Stripe)', description: 'Instant automated delivery via Credit/Debit card', value: 'select_stripe', emoji: '<:stripe:1554263177829687398>' },
+            { label: 'Pay with Cryptocurrency', description: 'Pay using ETH, LTC, BTC, or SOL', value: 'select_crypto', emoji: '<:crypto:1554263320997920799>' }
         ]);
     return new ActionRowBuilder().addComponents(selectMenu);
 }
@@ -173,7 +173,7 @@ function getCancelButtonRow() {
         .setCustomId('close_order')
         .setLabel('Cancel Order')
         .setStyle(ButtonStyle.Danger)
-        .setEmoji('🗑️');
+        .setEmoji('<:trashcan:1554593006596657262>');
     return new ActionRowBuilder().addComponents(cancelBtn);
 }
 
@@ -216,8 +216,8 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 
                 if (orderChannel) {
                     await orderChannel.send(
-                        `✅ **Payment Confirmed!** Thank you for your purchase, <@${buyerDiscordId}>.\n` +
-                        `⭐ You earned **${pointsEarned} points** for this transaction!\n\n` +
+                        `<a:confirm:1554592986334105620> **Payment Confirmed!** Thank you for your purchase, <@${buyerDiscordId}>.\n` +
+                        `<a:MTF_Credits:1554593086544412803> You earned **${pointsEarned} points** for this transaction!\n\n` +
                         `<a:be:1554263397842026507> <@&${ADMIN_ROLE_ID}> **A boost package has been paid for and requires manual delivery!**`
                     );
                 }
@@ -240,16 +240,16 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 
                 if (orderChannel) {
                     const deliveryMessage = await orderChannel.send(
-                        `✅ **Payment Confirmed!** Thank you for your purchase, <@${buyerDiscordId}>.\n` +
-                        `⭐ You earned **${pointsEarned} points** for this transaction!\n\n` +
+                        `<a:confirm:1554592986334105620> **Payment Confirmed!** Thank you for your purchase, <@${buyerDiscordId}>.\n` +
+                        `<a:MTF_Credits:1554593086544412803> You earned **${pointsEarned} points** for this transaction!\n\n` +
                         `Here is your code for **${targetItemId}**:\n` +
                         `\`\`\`${purchasedCode}\`\`\`\n` +
                         `Please use the reactions below to confirm delivery or report an issue.`
                     );
-                    await deliveryMessage.react('✅');
-                    await deliveryMessage.react('❌');
+                    await deliveryMessage.react('1554592986334105620');
+                    await deliveryMessage.react('1554592934828179476');
                     
-                    await orderChannel.send(`🙏 Thank you again for your business, <@${buyerDiscordId}>! If you have a moment, please drop a vouch in <#1542340439166820434>.`);
+                    await orderChannel.send(`<a:thanks:1554264929916158003> Thank you again for your business, <@${buyerDiscordId}>! If you have a moment, please drop a vouch in <#1542340439166820434>.`);
                 }
             }
         } catch (dbErr) {
@@ -284,8 +284,8 @@ botClient.on('messageReactionAdd', async (reaction, user) => {
     if (reaction.partial) try { await reaction.fetch(); } catch (err) { return; }
 
     if (reaction.message.channel.name.startsWith('trade-')) {
-        if (reaction.emoji.name === '✅') await reaction.message.channel.send(`✅ **Order confirmed complete by <@${user.id}>!** Thank you for your purchase.`);
-        else if (reaction.emoji.name === '❌') await reaction.message.channel.send(`❌ **ISSUE REPORTED:** <@&${ADMIN_ROLE_ID}>, <@${user.id}> reported a problem with this trade delivery! Please assist.`);
+        if (reaction.emoji.id === '1554592986334105620') await reaction.message.channel.send(`<a:confirm:1554592986334105620> **Order confirmed complete by <@${user.id}>!** Thank you for your purchase.`);
+        else if (reaction.emoji.id === '1554592934828179476') await reaction.message.channel.send(`<a:error:1554592934828179476> **ISSUE REPORTED:** <@&${ADMIN_ROLE_ID}>, <@${user.id}> reported a problem with this trade delivery! Please assist.`);
     }
 });
 
@@ -308,26 +308,26 @@ botClient.on('interactionCreate', async interaction => {
 
             try {
                 const userLedger = await Ledger.findOne({ discordId: targetUser.id });
-                if (!userLedger) return interaction.editReply({ content: `❌ <@${targetUser.id}> does not have any records or points on file.` });
+                if (!userLedger) return interaction.editReply({ content: `<a:error:1554592934828179476> <@${targetUser.id}> does not have any records or points on file.` });
 
                 const points = userLedger.points || 0;
                 const coupons = userLedger.coupons && userLedger.coupons.length > 0 ? userLedger.coupons.map(c => `${c}% Off`).join(', ') : 'None';
                 const purchaseCount = userLedger.purchases ? userLedger.purchases.length : 0;
 
                 const profileEmbed = new EmbedBuilder()
-                    .setTitle(`📊 User Profile: ${targetUser.username}`)
+                    .setTitle(`<:white_user:1554592911679553577> User Profile: ${targetUser.username}`)
                     .setThumbnail(targetUser.displayAvatarURL())
                     .setColor(0x5865F2)
                     .addFields(
-                        { name: '⭐ Points Balance', value: `\`${points}\``, inline: true },
-                        { name: '🎟️ Unused Coupons', value: `\`${coupons}\``, inline: true },
+                        { name: '<a:MTF_Credits:1554593086544412803> Points Balance', value: `\`${points}\``, inline: true },
+                        { name: '<:coupon:1554581616112832513> Unused Coupons', value: `\`${coupons}\``, inline: true },
                         { name: '<a:shop1:1554264889491726377> Total Purchases', value: `\`${purchaseCount}\``, inline: true }
                     );
 
                 await interaction.editReply({ embeds: [profileEmbed] });
             } catch (err) {
                 console.error('Database error in view-points:', err);
-                await interaction.editReply({ content: '❌ Failed to fetch user data from the database.' });
+                await interaction.editReply({ content: '<a:error:1554592934828179476> Failed to fetch user data from the database.' });
             }
         }
         if (commandLabel === 'boost-menu') {
@@ -402,7 +402,7 @@ const boostRow = new ActionRowBuilder().addComponents(
 
         if (commandLabel === 'coupon-store') {
             const storeEmbed = new EmbedBuilder()
-                .setTitle('🎟️ Points & Coupon Store')
+                .setTitle('<:coupon:1554581616112832513> Points & Coupon Store')
                 .setDescription(`Earn points automatically with every purchase you make! You can spend your saved points here on discount coupons for your next purchase.\n\n` +
                     `**Point Earnings:**\n` +
                     `• $1 - $100 = 2 Points\n` +
@@ -413,10 +413,10 @@ const boostRow = new ActionRowBuilder().addComponents(
 
             const couponMenu = new StringSelectMenuBuilder()
                 .setCustomId('buy_coupon')
-                .setPlaceholder('<a:shop1:1554264889491726377> Select a coupon to purchase...')
+                .setPlaceholder('Select a coupon to purchase...')
                 .addOptions([
-                    { label: '10% Discount Coupon', description: 'Costs 5 points', value: '10' },
-                    { label: '15% Discount Coupon', description: 'Costs 10 points', value: '15' }
+                    { label: '10% Discount Coupon', description: 'Costs 5 points', value: '10', emoji: '<:coupon:1554581616112832513>' },
+                    { label: '15% Discount Coupon', description: 'Costs 10 points', value: '15', emoji: '<:coupon:1554581616112832513>' }
                 ]);
 
             await interaction.channel.send({ embeds: [storeEmbed], components: [new ActionRowBuilder().addComponents(couponMenu)] });
@@ -530,13 +530,13 @@ const boostRow = new ActionRowBuilder().addComponents(
 
         if (commandLabel === 'request-limited') {
             const requestEmbed = new EmbedBuilder()
-                .setTitle('🔎 Need a Specific Limited?')
+                .setTitle('<a:aPES_Magnifying:1554592881707319448> Need a Specific Limited?')
                 .setDescription(
                     `Can't find the item you're looking for? **We'll help track it down.**\n\n` +
                     `We can source **practically any Limited** upon request.\n\n` +
-                    `⏱️ **Sourcing Time:** 12 Hours — 7 Days\n` +
-                    `💰 **30% Deposit Required** (Fully refundable if missing)\n\n` +
-                    `🎟️ **Start Sourcing:** Open a ticket in <#1542544665969164308>!`
+                    `<a:time:1554592842935173240> **Sourcing Time:** 12 Hours — 7 Days\n` +
+                    `<a:Cash_3D:1554592754875768902> **30% Deposit Required** (Fully refundable if missing)\n\n` +
+                    `<:coupon:1554581616112832513> **Start Sourcing:** Open a ticket in <#1542544665969164308>!`
                 )
                 .setColor(0x3B82F6);
 
@@ -579,7 +579,7 @@ const boostRow = new ActionRowBuilder().addComponents(
             if (!allInventory || allInventory.length === 0) return interaction.reply({ content: 'No inventory records found.' });
 
             const stockList = allInventory.map(item => `• **${item.itemId}**: ${item.codes.length} code(s) remaining`).join('\n');
-            await interaction.reply({ content: `📦 **Current Inventory Stock:**\n${stockList}` });
+            await interaction.reply({ content: `<a:box:1554592797733163099> **Current Inventory Stock:**\n${stockList}` });
         }
 
         if (commandLabel === 'remove-stock') {
@@ -637,7 +637,7 @@ const boostRow = new ActionRowBuilder().addComponents(
                 deliveredCode = deliveredCode.replace(/:.*$/, ''); // Remove any price info from the code for privacy
                 
                 const deliveryEmbed = new EmbedBuilder()
-                    .setTitle('🎁 Order Delivery')
+                    .setTitle('<a:Delivery:1554592662013739109> Order Delivery')
                     .setDescription(`Code for **${itemId.toUpperCase()}**:\n\`\`\`${deliveredCode}\`\`\``)
                     .setColor(0x00FF00);
 
@@ -672,11 +672,11 @@ const boostRow = new ActionRowBuilder().addComponents(
                 if (logChannel) {
                     const itemsold = channel.name.split('-')[1] || 'Unknown Item';
                     const receiptEmbed = new EmbedBuilder()
-                        .setTitle('🧾 New Successful Sale')
+                        .setTitle('<:Receipt:1554592625066254356> New Successful Sale')
                         .setColor(0x00FF00)
                         .addFields(
-                            { name: '📦 Item Sold', value: `\`${itemsold}\``, inline: true },
-                            { name: '💳 Payment Method', value: `\`${method}\``, inline: true }
+                            { name: '<a:box:1554592797733163099> Item Sold', value: `\`${itemsold}\``, inline: true },
+                            { name: '<:stripe:1554263177829687398> Payment Method', value: `\`${method}\``, inline: true }
                         )
                         .setTimestamp();
                     await logChannel.send({ embeds: [receiptEmbed] });
@@ -713,26 +713,19 @@ const boostRow = new ActionRowBuilder().addComponents(
 
                 if (userLedger && userLedger.coupons && userLedger.coupons.length > 0) {
                     const couponEmbed = new EmbedBuilder()
-                        .setTitle('🎟️ Discount Coupon Available!')
+                        .setTitle('<:coupon:1554581616112832513> Discount Coupon Available!')
                         .setDescription(`You have available coupons! Would you like to apply a coupon to this purchase?`)
                         .setColor(0xFFD700);
 
                     const couponRow = new ActionRowBuilder().addComponents(
-   new ButtonBuilder()
-    .setCustomId(`use_coupon_yes|${productKey}|${productPrice}`)
-    .setLabel('Use Coupon')
-    .setStyle(ButtonStyle.Success),
-
-new ButtonBuilder()
-    .setCustomId(`use_coupon_no|${productKey}|${productPrice}`)
-    .setLabel('Skip Coupon')
-    .setStyle(ButtonStyle.Secondary)
+    new ButtonBuilder().setCustomId(`use_coupon_yes|${productKey}|${productPrice}`).setLabel('Use Coupon').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`use_coupon_no|${productKey}|${productPrice}`).setLabel('Skip Coupon').setStyle(ButtonStyle.Secondary)
 );
 
                     await tradeChannel.send({ content: `<@${interaction.user.id}>`, embeds: [couponEmbed], components: [couponRow] });
                 } else {
                     const checkoutEmbed = new EmbedBuilder()
-                        .setTitle('<:tick:1554263289045712976> Secure Checkout Portal')
+                        .setTitle('<a:folder:1554593038003609620> Secure Checkout Portal')
                         .setDescription(`Order for **${productKey.toUpperCase()}**.\nTotal Price: \`$${productPrice} USD\``)
                         .setColor(0x5865F2);
 
@@ -757,7 +750,8 @@ new ButtonBuilder()
             const uniqueCoupons = [...new Set(userLedger.coupons)];
             const options = uniqueCoupons.map(pct => ({
                 label: `Apply ${pct}% Off Coupon`,
-                value: pct.toString()
+                value: pct.toString(),
+                emoji: '<:coupon:1554581616112832513>'
             }));
 
             const selectMenu = new StringSelectMenuBuilder()
@@ -766,7 +760,7 @@ new ButtonBuilder()
                 .addOptions(options);
 
             await interaction.update({
-                embeds: [new EmbedBuilder().setTitle('🎟️ Select Coupon').setDescription('Choose your coupon below:')],
+                embeds: [new EmbedBuilder().setTitle('<:coupon:1554581616112832513> Select Coupon').setDescription('Choose your coupon below:')],
                 components: [new ActionRowBuilder().addComponents(selectMenu), getCancelButtonRow()]
             });
         }
@@ -778,7 +772,7 @@ new ButtonBuilder()
     const formattedName = productKey.replace(/_/g, ' ').toUpperCase(); 
 
     const polishedEmbed = new EmbedBuilder()
-        .setTitle('<:tick:1554263289045712976> Secure Checkout Portal')
+        .setTitle('<a:folder:1554593038003609620> Secure Checkout Portal')
         .setDescription(`Order for **${formattedName}**.\nTotal Price: \`$${productPrice} USD\``)
         .setColor(0x5865F2);
 
@@ -797,7 +791,7 @@ new ButtonBuilder()
         }
 
         if (customId === 'close_order') {
-            await interaction.reply({ content: '🗑️ Order cancelled. Channel closing...' });
+            await interaction.reply({ content: '<:trashcan:1554593006596657262> Order cancelled. Channel closing...' });
             setTimeout(() => interaction.channel.delete().catch(() => { }), 2000);
         }
 
@@ -823,13 +817,13 @@ new ButtonBuilder()
     .setCustomId('select_boost_package')
     .setPlaceholder('Select your boost package...')
     .addOptions([
-        { label: '2x Boosts (Level 1)', value: '2_boosts|0.99', emoji: '💎' },
-        { label: '4x Boosts', value: '4_boosts|1.75', emoji: '✨' },
-        { label: '6x Boosts', value: '6_boosts|2.25', emoji: '✨' },
-        { label: '8x Boosts (Level 2)', value: '8_boosts|2.75', emoji: '🔥' },
-        { label: '10x Boosts', value: '10_boosts|3.25', emoji: '🔥' },
-        { label: '12x Boosts', value: '12_boosts|3.49', emoji: '🔥' },
-        { label: '14x Boosts (Level 3)', value: '14_boosts|3.99', emoji: '👑' }
+        { label: '2x Boosts (Level 1)', value: '2_boosts|0.99', emoji: '<a:boostlogo:1554263092244906005>' },
+        { label: '4x Boosts', value: '4_boosts|1.75', emoji: '<a:boostlogo:1554263092244906005>' },
+        { label: '6x Boosts', value: '6_boosts|2.25', emoji: '<a:boostlogo:1554263092244906005>' },
+        { label: '8x Boosts (Level 2)', value: '8_boosts|2.75', emoji: '<a:boostlogo:1554263092244906005>' },
+        { label: '10x Boosts', value: '10_boosts|3.25', emoji: '<a:boostlogo:1554263092244906005>' },
+        { label: '12x Boosts', value: '12_boosts|3.49', emoji: '<a:boostlogo:1554263092244906005>' },
+        { label: '14x Boosts (Level 3)', value: '14_boosts|3.99', emoji: '<a:boostlogo:1554263092244906005>' }
     ]);
 
         const welcomeEmbed = new EmbedBuilder()
@@ -899,27 +893,20 @@ new ButtonBuilder()
 
             if (userLedger && userLedger.coupons && userLedger.coupons.length > 0) {
                 const couponEmbed = new EmbedBuilder()
-                    .setTitle('🎟️ Discount Coupon Available!')
+                    .setTitle('<:coupon:1554581616112832513> Discount Coupon Available!')
                     .setDescription(`You have available coupons! Would you like to apply a coupon to this purchase?`)
                     .setColor(0xFFD700);
 
                 const couponRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-        .setCustomId(`use_coupon_yes|${productKey}|${productPrice}`)
-        .setLabel('Use Coupon')
-        .setStyle(ButtonStyle.Success),
-
-    new ButtonBuilder()
-        .setCustomId(`use_coupon_no|${productKey}|${productPrice}`)
-        .setLabel('Skip Coupon')
-        .setStyle(ButtonStyle.Secondary)
-);
+                    new ButtonBuilder().setCustomId(`use_coupon_yes|${productKey}|${productPrice}`).setLabel('Use Coupon').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId(`use_coupon_no|${productKey}|${productPrice}`).setLabel('Skip Coupon').setStyle(ButtonStyle.Secondary)
+                );
                 
                 await interaction.editReply({ embeds: [couponEmbed], components: [couponRow] });
             } else {
                 const formattedName = productKey.replace(/_/g, ' ').toUpperCase();
                 const checkoutEmbed = new EmbedBuilder()
-                    .setTitle('<:tick:1554263289045712976> Secure Checkout Portal')
+                    .setTitle('<a:folder:1554593038003609620> Secure Checkout Portal')
                     .setDescription(`Order for **${formattedName}**.\nTotal Price: \`$${productPrice} USD\``)
                     .setColor(0x5865F2);
 
@@ -1055,7 +1042,7 @@ new ButtonBuilder()
 
                 const welcomeEmbed = new EmbedBuilder()
                     .setTitle('🎫 Account Purchase Ticket')
-                    .setDescription(`Welcome <@${interaction.user.id}>!\n\nRequested Account: **@${selectedUsername}**\nCategory: **${(CATEGORY_NAMES[categoryId] || categoryId).toUpperCase()}**\n\n Price: **$${parseFloat(originalPrice).toFixed(2)} USD**\n\nSupport staff will assist you shortly.`)
+                    .setDescription(`Welcome <@${interaction.user.id}>!\n\nRequested Account: **@${selectedUsername}**\nCategory: **${(CATEGORY_NAMES[categoryId] || categoryId).toUpperCase()}**\n\nSupport staff will assist you shortly.`)
                     .setColor(0x5865F2);
 
                 await ticketChannel.send({
@@ -1088,8 +1075,8 @@ new ButtonBuilder()
     const newPrice = (parseFloat(originalPrice) * (1 - (discountPct / 100))).toFixed(2);
     
     const discountedEmbed = new EmbedBuilder()
-        .setTitle('<:tick:1554263289045712976> Secure Checkout Portal (Discount Applied)')
-        .setDescription(`Order for **${formattedName}**\nNew Price: \`$${newPrice} USD\` 🎉`)
+        .setTitle('<a:folder:1554593038003609620> Secure Checkout Portal (Discount Applied)')
+        .setDescription(`Order for **${formattedName}**\nNew Price: \`$${newPrice} USD\` <:price:1554267169800585227>`)
         .setColor(0x00FF00);
 
     await interaction.editReply({ 
@@ -1123,8 +1110,8 @@ new ButtonBuilder()
                         quantity: 1,
                     }],
                     mode: 'payment',
-                    success_url: 'https://discord.com/',
-cancel_url: 'https://discord.com/',
+                    success_url: 'discord.com',
+                    cancel_url: 'discord.com',
                     metadata: {
                         discord_user_id: interaction.user.id,
                         item_id: productKey,
@@ -1133,8 +1120,8 @@ cancel_url: 'https://discord.com/',
                 });
 
                 const checkoutEmbed = new EmbedBuilder()
-                    .setTitle('💳 Stripe Card Checkout')
-                    .setDescription(`Click below to pay safely. Delivery is automated once paid.\n\n⚠️️ *A 5% processing fee ($${feeAmount.toFixed(2)}) has been added to your total.*`)
+                    .setTitle('<:stripe:1554263177829687398> Stripe Card Checkout')
+                    .setDescription(`Click below to pay safely. Delivery is automated once paid.\n\n<a:important:1554267188272308248> *A 5% processing fee ($${feeAmount.toFixed(2)}) has been added to your total.*`)
                     .setColor(0x635BFF);
 
                 // Update the button label to show the final price with the fee included
@@ -1152,14 +1139,14 @@ cancel_url: 'https://discord.com/',
                 const amounts = await getCryptoAmounts(parseFloat(productPrice));
 
                 const cryptoEmbed = new EmbedBuilder()
-                    .setTitle('🪙 Crypto Payment Gateway')
+                    .setTitle('<:crypto:1554263320997920799> Crypto Payment Gateway')
                     .setDescription(`Send exact live amount for **$${productPrice} USD**:`)
                     .setColor(0xF7931A)
                     .addFields(
-                        { name: '🔹 ETH', value: `\`\`\`${amounts.eth} ETH\`\`\`\n\`\`\`0x42d01fE1f89C6cDE28ef7a34Ef5A7B452eD6B271\`\`\`` },
-                        { name: '🟣 LTC', value: `\`\`\`${amounts.ltc} LTC\`\`\`\n\`\`\`MWSeYJ3qgm3j5yYGGFimu5ebSzHA9oUvBy\`\`\`` },
-                        { name: '🟠 BTC', value: `\`\`\`${amounts.btc} BTC\`\`\`\n\`\`\`34hRphphvMtvqiWPawAESR1bxkfvUoFNhh\`\`\`` },
-                        { name: '🟢 SOL', value: `\`\`\`${amounts.sol} SOL\`\`\`\n\`\`\`222P8wKAC2s2UcfNyANYre8yVKjU1c3C3MA7mYqK92ZB\`\`\`` }
+                        { name: '<:eth:1554263242937860127> ETH', value: `\`\`\`${amounts.eth} ETH\`\`\`\n\`\`\`0x42d01fE1f89C6cDE28ef7a34Ef5A7B452eD6B271\`\`\`` },
+                        { name: '<:LTC:1554263223325171793> LTC', value: `\`\`\`${amounts.ltc} LTC\`\`\`\n\`\`\`MWSeYJ3qgm3j5yYGGFimu5ebSzHA9oUvBy\`\`\`` },
+                        { name: '<:BTC:1554263205331738634> BTC', value: `\`\`\`${amounts.btc} BTC\`\`\`\n\`\`\`34hRphphvMtvqiWPawAESR1bxkfvUoFNhh\`\`\`` },
+                        { name: '<:sol:1554263160041640036> SOL', value: `\`\`\`${amounts.sol} SOL\`\`\`\n\`\`\`222P8wKAC2s2UcfNyANYre8yVKjU1c3C3MA7mYqK92ZB\`\`\`` }
                     );
 
                 const submitTxBtn = new ButtonBuilder().setCustomId(`open_tx_modal|${productKey}`).setLabel('Submit Transaction Hash').setStyle(ButtonStyle.Success);
@@ -1193,7 +1180,7 @@ cancel_url: 'https://discord.com/',
         const userTxProof = interaction.fields.getTextInputValue('tx_hash_input');
 
         const confirmationEmbed = new EmbedBuilder()
-            .setTitle('📥 Transaction Submitted')
+            .setTitle('<a:heist:1554267239992131756> Transaction Submitted')
             .setDescription(`Item: \`${productKey}\`\nHash:\n\`\`\`${userTxProof}\`\`\``)
             .setColor(0x00FF00);
 

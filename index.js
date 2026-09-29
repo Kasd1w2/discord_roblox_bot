@@ -885,37 +885,35 @@ const boostRow = new ActionRowBuilder().addComponents(
         const customId = interaction.customId;
 
         if (customId === 'select_boost_package') {
-    await interaction.deferUpdate();
-    
-    // Grabs the item and price from the dropdown value you set above
-    const [productKey, productPrice] = interaction.values[0].split('|');
-    
-    let userLedger = await Ledger.findOne({ discordId: interaction.user.id });
+            await interaction.deferUpdate();
+            
+            const [productKey, productPrice] = interaction.values[0].split('|');
+            let userLedger = await Ledger.findOne({ discordId: interaction.user.id });
 
-    // Exact same coupon logic from your single-item forum posts
-    if (userLedger && userLedger.coupons && userLedger.coupons.length > 0) {
-        const couponEmbed = new EmbedBuilder()
-            .setTitle('🎟️ Discount Coupon Available!')
-            .setDescription(`You have available coupons! Would you like to apply a coupon to this purchase?`)
-            .setColor(0xFFD700);
+            if (userLedger && userLedger.coupons && userLedger.coupons.length > 0) {
+                const couponEmbed = new EmbedBuilder()
+                    .setTitle('🎟️ Discount Coupon Available!')
+                    .setDescription(`You have available coupons! Would you like to apply a coupon to this purchase?`)
+                    .setColor(0xFFD700);
 
-        const couponRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`use_coupon_yes|${productKey}\vert{}${productPrice}`).setLabel('Use Coupon').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId(`use_coupon_no|${productKey}\vert{}${productPrice}`).setLabel('Skip Coupon').setStyle(ButtonStyle.Secondary)
-        );
-        
-        await interaction.editReply({ embeds: [couponEmbed], components: [couponRow] });
-    } else {
-        const checkoutEmbed = new EmbedBuilder()
-            .setTitle('<:tick:1554263289045712976> Secure Checkout Portal')
-            .setDescription(`Order for **${productKey.toUpperCase().replace('_', ' ')}**.\nTotal Price: \`$${productPrice} USD\``)
-            .setColor(0x5865F2);
+                const couponRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId(`use_coupon_yes|${productKey}\vert{}${productPrice}`).setLabel('Use Coupon').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId(`use_coupon_no|${productKey}\vert{}${productPrice}`).setLabel('Skip Coupon').setStyle(ButtonStyle.Secondary)
+                );
+                
+                await interaction.editReply({ embeds: [couponEmbed], components: [couponRow] });
+            } else {
+                const formattedName = productKey.replace(/_/g, ' ').toUpperCase();
+                const checkoutEmbed = new EmbedBuilder()
+                    .setTitle('<:tick:1554263289045712976> Secure Checkout Portal')
+                    .setDescription(`Order for **${formattedName}**.\nTotal Price: \`$${productPrice} USD\``)
+                    .setColor(0x5865F2);
 
-        await interaction.editReply({
-            embeds: [checkoutEmbed],
-            components: [generatePaymentMenu(productKey, productPrice, interaction.channel.id), getCancelButtonRow()]
-        });
-    }
+                await interaction.editReply({
+                    embeds: [checkoutEmbed],
+                    components: [generatePaymentMenu(productKey, productPrice, interaction.channel.id), getCancelButtonRow()]
+                });
+            }
 }
         if (customId === 'buy_coupon') {
             await interaction.deferReply({ flags: 64 });
@@ -1043,7 +1041,7 @@ const boostRow = new ActionRowBuilder().addComponents(
 
                 const welcomeEmbed = new EmbedBuilder()
                     .setTitle('🎫 Account Purchase Ticket')
-                    .setDescription(`Welcome <@${interaction.user.id}>!\n\nRequested Account: **@${selectedUsername}**\nCategory: **${(CATEGORY_NAMES[categoryId] || categoryId).toUpperCase()}**\n\n Price: **$${parseFloat(originalPrice).toFixed(2)} USD**\n\nSupport staff will assist you shortly.`)
+                    .setDescription(`Welcome <@${interaction.user.id}>!\n\nRequested Account: **@${selectedUsername}**\nCategory: **${(CATEGORY_NAMES[categoryId] || categoryId).toUpperCase()}**\n\nSupport staff will assist you shortly.`)
                     .setColor(0x5865F2);
 
                 await ticketChannel.send({

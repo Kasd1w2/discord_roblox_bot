@@ -903,7 +903,7 @@ const boostRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId(`use_coupon_yes|${productKey}\vert{}${productPrice}`).setLabel('Use Coupon').setStyle(ButtonStyle.Success),
             new ButtonBuilder().setCustomId(`use_coupon_no|${productKey}\vert{}${productPrice}`).setLabel('Skip Coupon').setStyle(ButtonStyle.Secondary)
         );
-
+        
         await interaction.editReply({ embeds: [couponEmbed], components: [couponRow] });
     } else {
         const checkoutEmbed = new EmbedBuilder()

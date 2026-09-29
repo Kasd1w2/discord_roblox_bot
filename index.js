@@ -718,8 +718,15 @@ const boostRow = new ActionRowBuilder().addComponents(
                         .setColor(0xFFD700);
 
                     const couponRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`use_coupon_yes|${productKey}|${productPrice}`).setLabel('Use Coupon').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(`use_coupon_no|${productKey}|${productPrice}`).setLabel('Skip Coupon').setStyle(ButtonStyle.Secondary)
+   new ButtonBuilder()
+    .setCustomId(`use_coupon_yes|${productKey}|${productPrice}`)
+    .setLabel('Use Coupon')
+    .setStyle(ButtonStyle.Success),
+
+new ButtonBuilder()
+    .setCustomId(`use_coupon_no|${productKey}|${productPrice}`)
+    .setLabel('Skip Coupon')
+    .setStyle(ButtonStyle.Secondary)
 );
 
                     await tradeChannel.send({ content: `<@${interaction.user.id}>`, embeds: [couponEmbed], components: [couponRow] });
@@ -1041,7 +1048,7 @@ const boostRow = new ActionRowBuilder().addComponents(
 
                 const welcomeEmbed = new EmbedBuilder()
                     .setTitle('🎫 Account Purchase Ticket')
-                    .setDescription(`Welcome <@${interaction.user.id}>!\n\nRequested Account: **@${selectedUsername}**\nCategory: **${(CATEGORY_NAMES[categoryId] || categoryId).toUpperCase()}**\n\nSupport staff will assist you shortly.`)
+                    .setDescription(`Welcome <@${interaction.user.id}>!\n\nRequested Account: **@${selectedUsername}**\nCategory: **${(CATEGORY_NAMES[categoryId] || categoryId).toUpperCase()}**\n\n Price: **$${parseFloat(originalPrice).toFixed(2)} USD**\n\nSupport staff will assist you shortly.`)
                     .setColor(0x5865F2);
 
                 await ticketChannel.send({
@@ -1109,8 +1116,8 @@ const boostRow = new ActionRowBuilder().addComponents(
                         quantity: 1,
                     }],
                     mode: 'payment',
-                    success_url: '',
-                    cancel_url: '',
+                    success_url: 'https://discord.com/',
+cancel_url: 'https://discord.com/',
                     metadata: {
                         discord_user_id: interaction.user.id,
                         item_id: productKey,

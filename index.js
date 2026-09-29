@@ -904,8 +904,8 @@ new ButtonBuilder()
                     .setColor(0xFFD700);
 
                 const couponRow = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId(`use_coupon_yes|${productKey}\vert{}${productPrice}`).setLabel('Use Coupon').setStyle(ButtonStyle.Success),
-                    new ButtonBuilder().setCustomId(`use_coupon_no|${productKey}\vert{}${productPrice}`).setLabel('Skip Coupon').setStyle(ButtonStyle.Secondary)
+                    .setCustomId(`use_coupon_yes|${productKey}|${productPrice}`)
+.setCustomId(`use_coupon_no|${productKey}|${productPrice}`)
                 );
                 
                 await interaction.editReply({ embeds: [couponEmbed], components: [couponRow] });

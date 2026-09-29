@@ -1176,10 +1176,9 @@ const boostRow = new ActionRowBuilder().addComponents(
             .setColor(0x00FF00);
 
         await interaction.reply({ embeds: [confirmationEmbed] });
-        await interaction.channel.send(`<a:be:1554263397842026507 <@&${ADMIN_ROLE_ID}>, <@${interaction.user.id}> submitted transaction proof for **${productKey}**!`);
+        await interaction.channel.send(`<a:be:1554263397842026507> <@&${ADMIN_ROLE_ID}>, <@${interaction.user.id}> submitted transaction proof for **${productKey}**!`);
     }
-}
-});
+}); // Closes the botClient.on('interactionCreate') event
 
 // START SERVER & LOGIN
 const port = process.env.PORT || 3000;
@@ -1195,4 +1194,4 @@ setInterval(async () => {
   } catch (error) {
     console.error("Self-ping failed:", error.message);
   }
-}, 10 * 60 * 1000); // 10 minutes in milliseconds
+}, 10 * 60 * 1000); // <-- Ensure this comma exists!

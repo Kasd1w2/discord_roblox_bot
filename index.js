@@ -718,9 +718,9 @@ const boostRow = new ActionRowBuilder().addComponents(
                         .setColor(0xFFD700);
 
                     const couponRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`use_coupon_yes|${productKey}|${productPrice}`).setLabel('Use Coupon').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId(`use_coupon_no|${productKey}|${productPrice}`).setLabel('Skip Coupon').setStyle(ButtonStyle.Secondary)
-        );
+                        new ButtonBuilder().setCustomId(`use_coupon_yes|${productKey}|${productPrice}`).setLabel('Use Coupon').setStyle(ButtonStyle.Success),
+                        new ButtonBuilder().setCustomId(`use_coupon_no|${productKey}|${productPrice}`).setLabel('Skip Coupon').setStyle(ButtonStyle.Secondary)
+                    );
 
                     await tradeChannel.send({ content: `<@${interaction.user.id}>`, embeds: [couponEmbed], components: [couponRow] });
                 } else {
@@ -1059,45 +1059,33 @@ const boostRow = new ActionRowBuilder().addComponents(
             }
         }
 
-        if (customId === 'select_boost_package') {
-    await interaction.deferUpdate();
+        if (customId.startsWith('apply_coupon|')) {
+            await interaction.deferUpdate();
+            const [, productKey, originalPrice] = customId.split('|');
+            const discountPct = parseInt(interaction.values[0]);
+
+            let userLedger = await Ledger.findOne({ discordId: interaction.user.id });
+            const couponIndex = userLedger.coupons.indexOf(discountPct);
+
+            if (couponIndex > -1) {
+    userLedger.coupons.splice(couponIndex, 1);
+    await userLedger.save();
+
+    // Removes underscores and capitalizes (e.g., "6_boosts" -> "6 BOOSTS")
+    const formattedName = productKey.replace(/_/g, ' ').toUpperCase();
+    const newPrice = (parseFloat(originalPrice) * (1 - (discountPct / 100))).toFixed(2);
     
-    // Grabs the item and price from the dropdown value you set above
-    const [productKey, productPrice] = interaction.values[0].split('|');
-    
-    let userLedger = await Ledger.findOne({ discordId: interaction.user.id });
+    const discountedEmbed = new EmbedBuilder()
+        .setTitle('<:tick:1554263289045712976> Secure Checkout Portal (Discount Applied)')
+        .setDescription(`Order for **${formattedName}**\nNew Price: \`$${newPrice} USD\` 🎉`)
+        .setColor(0x00FF00);
 
-    // Exact same coupon logic from your single-item forum posts
-    if (userLedger && userLedger.coupons && userLedger.coupons.length > 0) {
-        const couponEmbed = new EmbedBuilder()
-            .setTitle('🎟️ Discount Coupon Available!')
-            .setDescription(`You have available coupons! Would you like to apply a coupon to this purchase?`)
-            .setColor(0xFFD700);
-
-        const couponRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId(`use_coupon_yes|${productKey}\vert{}${productPrice}`) // Fixed: replaced \vert{} with |
-                .setLabel('Use Coupon')
-                .setStyle(ButtonStyle.Success),
-            new ButtonBuilder()
-                .setCustomId(`use_coupon_no|${productKey}\vert{}${productPrice}`)  // Fixed: replaced \vert{} with |
-                .setLabel('Skip Coupon')
-                .setStyle(ButtonStyle.Secondary)
-        );
-        
-        await interaction.editReply({ embeds: [couponEmbed], components: [couponRow] });
-    } else {
-        const checkoutEmbed = new EmbedBuilder()
-            .setTitle('<:tick:1554263289045712976> Secure Checkout Portal')
-            .setDescription(`Order for **${productKey.toUpperCase().replace('_', ' ')}**.\nTotal Price: \`$${productPrice} USD\``)
-            .setColor(0x5865F2);
-
-        await interaction.editReply({
-            embeds: [checkoutEmbed],
-            components: [generatePaymentMenu(productKey, productPrice, interaction.channel.id), getCancelButtonRow()]
-        });
-    }
+    await interaction.editReply({ 
+        embeds: [discountedEmbed], 
+        components: [generatePaymentMenu(productKey, newPrice, interaction.channel.id), getCancelButtonRow()] 
+    });
 }
+        }
 
         if (customId.startsWith('payment_select|')) {
             const [, productKey, productPrice, channelId] = customId.split('|');
@@ -1123,8 +1111,8 @@ const boostRow = new ActionRowBuilder().addComponents(
                         quantity: 1,
                     }],
                     mode: 'payment',
-                    success_url: 'https://roblox.com/redeem',
-                    cancel_url: 'https://roblox.com/redeem',
+                    success_url: '',
+                    cancel_url: '',
                     metadata: {
                         discord_user_id: interaction.user.id,
                         item_id: productKey,

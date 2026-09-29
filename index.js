@@ -635,7 +635,7 @@ const boostRow = new ActionRowBuilder().addComponents(
                 await userLedger.save();
 
                 deliveredCode = deliveredCode.replace(/:.*$/, ''); // Remove any price info from the code for privacy
-
+                
                 const deliveryEmbed = new EmbedBuilder()
                     .setTitle('🎁 Order Delivery')
                     .setDescription(`Code for **${itemId.toUpperCase()}**:\n\`\`\`${deliveredCode}\`\`\``)
@@ -718,9 +718,9 @@ const boostRow = new ActionRowBuilder().addComponents(
                         .setColor(0xFFD700);
 
                     const couponRow = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder().setCustomId(`use_coupon_yes|${productKey}|${productPrice}`).setLabel('Use Coupon').setStyle(ButtonStyle.Success),
-                        new ButtonBuilder().setCustomId(`use_coupon_no|${productKey}|${productPrice}`).setLabel('Skip Coupon').setStyle(ButtonStyle.Secondary)
-                    );
+    new ButtonBuilder().setCustomId(`use_coupon_yes|${productKey}|${productPrice}`).setLabel('Use Coupon').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`use_coupon_no|${productKey}|${productPrice}`).setLabel('Skip Coupon').setStyle(ButtonStyle.Secondary)
+);
 
                     await tradeChannel.send({ content: `<@${interaction.user.id}>`, embeds: [couponEmbed], components: [couponRow] });
                 } else {

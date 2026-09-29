@@ -826,7 +826,7 @@ const boostRow = new ActionRowBuilder().addComponents(
     ]);
 
         const welcomeEmbed = new EmbedBuilder()
-            .setTitle('🚀 Server Boost Purchase')
+            .setTitle('<a:wumpus:1554265012338434078> Server Boost Purchase')
             .setDescription(`Welcome <@${interaction.user.id}>!\n\nPlease select the exact package you want from the menu below to calculate pricing and apply any coupons.`)
             .setColor(0xff73fa);
 
@@ -1184,3 +1184,14 @@ const boostRow = new ActionRowBuilder().addComponents(
 const port = process.env.PORT || 3000;
 webApp.listen(port, () => console.log(`HTTP Listener running on port ${port}`));
 botClient.login(process.env.DISCORD_TOKEN);
+
+const RENDER_URL = "https://discord-roblox-bot-1fqt.onrender.com/"; // Replace with your actual Render URL
+
+setInterval(async () => {
+  try {
+    const response = await fetch(RENDER_URL);
+    console.log(`Self-ping status: ${response.status} - Keep-alive active.`);
+  } catch (error) {
+    console.error("Self-ping failed:", error.message);
+  }
+}, 10 * 60 * 1000); // 10 minutes in milliseconds

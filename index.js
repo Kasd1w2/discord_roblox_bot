@@ -904,9 +904,16 @@ new ButtonBuilder()
                     .setColor(0xFFD700);
 
                 const couponRow = new ActionRowBuilder().addComponents(
-                    .setCustomId(`use_coupon_yes|${productKey}|${productPrice}`)
-.setCustomId(`use_coupon_no|${productKey}|${productPrice}`)
-                );
+    new ButtonBuilder()
+        .setCustomId(`use_coupon_yes|${productKey}|${productPrice}`)
+        .setLabel('Use Coupon')
+        .setStyle(ButtonStyle.Success),
+
+    new ButtonBuilder()
+        .setCustomId(`use_coupon_no|${productKey}|${productPrice}`)
+        .setLabel('Skip Coupon')
+        .setStyle(ButtonStyle.Secondary)
+);
                 
                 await interaction.editReply({ embeds: [couponEmbed], components: [couponRow] });
             } else {

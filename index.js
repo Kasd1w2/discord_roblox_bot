@@ -429,7 +429,7 @@ const boostRow = new ActionRowBuilder().addComponents(
 
             const storeType = interaction.options.getString('store_type');
             const selectedChannelOption = interaction.options.getChannel('channel');
-            const customTitle = interaction.options.getString('title') || 'RO8LOX User Stock';
+            const customTitle = interaction.options.getString('title') || 'Stocked User Stock';
 
             if (storeType === 'account') {
                 updateBotStatus(`🏷️ Deploying User Catalog`);
@@ -530,13 +530,13 @@ const boostRow = new ActionRowBuilder().addComponents(
 
         if (commandLabel === 'request-limited') {
             const requestEmbed = new EmbedBuilder()
-                .setTitle('<a:aPES_Magnifying:1554592881707319448> Need a Specific Limited?')
+                .setTitle('<a:aPES_Magnifying:1554592881707319448> Need a Specific Limited or Toycode?')
                 .setDescription(
                     `Can't find the item you're looking for? **We'll help track it down.**\n\n` +
-                    `We can source **practically any Limited** upon request.\n\n` +
+                    `We can source **practically any Limited or Toycode** upon request.\n\n` +
                     `<a:time:1554592842935173240> **Sourcing Time:** 12 Hours — 7 Days\n` +
                     `<a:Cash_3D:1554592754875768902> **30% Deposit Required** (Fully refundable if missing)\n\n` +
-                    `<:coupon:1554581616112832513> **Start Sourcing:** Open a ticket in <#1542544665969164308>!`
+                    `<a:heist:1554267239992131756>> **Start Sourcing:** Open a ticket in <#1542544665969164308>!`
                 )
                 .setColor(0x3B82F6);
 
@@ -986,7 +986,7 @@ const boostRow = new ActionRowBuilder().addComponents(
             await interaction.deferReply({ flags: 64 });
 
             const [, encodedTitle] = customId.split('|');
-            const storeTitle = encodedTitle ? decodeURIComponent(encodedTitle) : 'RO8LOX User Stock';
+            const storeTitle = encodedTitle ? decodeURIComponent(encodedTitle) : 'Stocked User Stock';
             const selectedSubcat = interaction.values[0];
             const categoryName = CATEGORY_NAMES[selectedSubcat] || selectedSubcat.toUpperCase();
 
@@ -1001,8 +1001,8 @@ const boostRow = new ActionRowBuilder().addComponents(
             const stockEmbed = new EmbedBuilder()
                 .setTitle(`${storeTitle} - ${categoryName}`)
                 .setDescription(
-                    `Before purchase read the channel rules and <#1542306776622309437>.\n` +
-                    `All listed accounts are unverified with no claimed billing.\n\n` +
+                    `<a:Termss:1554267208882978896> Before purchase please read our Terms and Conditions in <#1555338590064746576>.\n` +
+                    `<:white_user:1554592911679553577> All listed accounts are unverified with no claimed billing unless stated otherwise.\n\n` +
                     `\`\`\`\n${formattedStockList}\n\`\`\``
                 )
                 .setColor(0x2B2D31);
@@ -1197,7 +1197,7 @@ webApp.get('/', (req, res) => {
 webApp.listen(port, () => console.log(`HTTP Listener running on port ${port}`));
 botClient.login(process.env.DISCORD_TOKEN);
 
-const RENDER_URL = "https://discord-roblox-bot-1fqt.onrender.com/"; // Replace with your actual Render URL
+const RENDER_URL = "https://discord-roblox-bot-1fqt.onrender.com/"; 
 
 setInterval(async () => {
   try {

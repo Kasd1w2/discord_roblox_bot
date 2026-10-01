@@ -1110,8 +1110,8 @@ const boostRow = new ActionRowBuilder().addComponents(
                         quantity: 1,
                     }],
                     mode: 'payment',
-                    success_url: 'discord.com',
-                    cancel_url: 'discord.com',
+                    success_url: 'https://discord.com',
+                    cancel_url: 'https://discord.com',
                     metadata: {
                         discord_user_id: interaction.user.id,
                         item_id: productKey,

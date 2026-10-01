@@ -1191,6 +1191,9 @@ const boostRow = new ActionRowBuilder().addComponents(
 
 // START SERVER & LOGIN
 const port = process.env.PORT || 3000;
+webApp.get('/', (req, res) => {
+    res.status(200).send('Bot is running');
+});
 webApp.listen(port, () => console.log(`HTTP Listener running on port ${port}`));
 botClient.login(process.env.DISCORD_TOKEN);
 

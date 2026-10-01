@@ -106,6 +106,10 @@ mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log('Successfully connected to MongoDB Atlas.'))
     .catch(err => console.error('MongoDB connection error:', err));
 
+mongoose.connection.on('error', error => {
+    console.error('MongoDB runtime error:', error);
+});
+
 const webApp = express();
 const botClient = new Client({
     intents: [
@@ -116,15 +120,55 @@ const botClient = new Client({
     ]
 });
 
-// --- HELPER FUNCTIONS ---
-function updateBotStatus(text, temporaryMs = 15000) {
-    if (!botClient || !botClient.user) return;
-    botClient.user.setActivity(text, { type: ActivityType.Custom });
+botClient.on('error', error => {
+    console.error('Discord client error:', error);
+});
 
-    if (temporaryMs > 0) {
-        setTimeout(() => {
-            botClient.user.setActivity('🛒 Stocked Store Operations', { type: ActivityType.Watching });
-        }, temporaryMs);
+botClient.on('shardError', error => {
+    console.error('Discord gateway error:', error);
+});
+
+// --- HELPER FUNCTIONS ---
+async function sendInteractionError(interaction, content = '<a:error:1554592934828179476> An error occurred while processing your request. Please contact support.') {
+    try {
+        if (!interaction.isRepliable()) return;
+
+        if (interaction.deferred && !interaction.replied && interaction.ephemeral !== null) {
+            await interaction.editReply({ content, embeds: [], components: [] });
+        } else if (interaction.deferred || interaction.replied) {
+            await interaction.followUp({ content, flags: 64 });
+        } else {
+            await interaction.reply({ content, flags: 64 });
+        }
+    } catch (replyError) {
+        console.error('Failed to send interaction error response:', replyError);
+    }
+}
+
+async function deleteOrderChannel(channel) {
+    try {
+        await channel.delete();
+    } catch (error) {
+        console.error('Order channel deletion failed:', error);
+    }
+}
+function updateBotStatus(text, temporaryMs = 15000) {
+    try {
+        if (!botClient.user) return;
+        botClient.user.setActivity(text, { type: ActivityType.Custom });
+
+        if (temporaryMs > 0) {
+            setTimeout(() => {
+                try {
+                    if (!botClient.user) return;
+                    botClient.user.setActivity('🛒 Stocked Store Operations', { type: ActivityType.Watching });
+                } catch (error) {
+                    console.error('Failed to reset bot status:', error);
+                }
+            }, temporaryMs);
+        }
+    } catch (error) {
+        console.error('Failed to update bot status:', error);
     }
 }
 
@@ -190,13 +234,13 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
     }
 
     if (stripeEvent.type === 'checkout.session.completed') {
-        const session = stripeEvent.data.object;
-        const buyerDiscordId = session.metadata.discord_user_id;
-        const targetItemId = session.metadata.item_id;
-        const channelId = session.metadata.channel_id;
-        const usdPricePaid = session.amount_total / 100;
-
         try {
+            const session = stripeEvent.data.object;
+            const buyerDiscordId = session.metadata.discord_user_id;
+            const targetItemId = session.metadata.item_id;
+            const channelId = session.metadata.channel_id;
+            const usdPricePaid = session.amount_total / 100;
+
             updateBotStatus(`💳 Payment received! Processing ${targetItemId.toUpperCase()}...`);
 
             let userLedger = await Ledger.findOne({ discordId: buyerDiscordId });
@@ -262,11 +306,11 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 
 // --- DISCORD CLIENT INITIALIZATION & COMMAND SYNC ---
 botClient.once('clientReady', async () => {
-    console.log(`Bot operational as: ${botClient.user.tag}`);
-    botClient.user.setActivity('🛒 Stocked Store Operations', { type: ActivityType.Watching });
-
-    const restApi = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
+        console.log(`Bot operational as: ${botClient.user.tag}`);
+        botClient.user.setActivity('🛒 Stocked Store Operations', { type: ActivityType.Watching });
+
+        const restApi = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
         await restApi.put(Routes.applicationCommands(botClient.user.id), { body: [] });
         await restApi.put(
             Routes.applicationGuildCommands(botClient.user.id, '1542259049494610013'),
@@ -274,23 +318,27 @@ botClient.once('clientReady', async () => {
         );
         console.log('Commands synchronized cleanly.');
     } catch (syncError) {
-        console.error('Command synchronization failed:', syncError);
+        console.error('Discord initialization or command synchronization failed:', syncError);
     }
 });
 
 // --- EVENT ROUTING: REACTION LISTENER ---
 botClient.on('messageReactionAdd', async (reaction, user) => {
-    if (user.bot) return;
-    if (reaction.partial) try { await reaction.fetch(); } catch (err) { return; }
+    try {
+        if (user.bot) return;
+        if (reaction.partial) await reaction.fetch();
 
-    if (reaction.message.channel.name.startsWith('trade-')) {
-        if (reaction.emoji.id === '1554592986334105620') await reaction.message.channel.send(`<a:confirm:1554592986334105620> **Order confirmed complete by <@${user.id}>!** Thank you for your purchase.`);
-        else if (reaction.emoji.id === '1554592934828179476') await reaction.message.channel.send(`<a:error:1554592934828179476> **ISSUE REPORTED:** <@&${ADMIN_ROLE_ID}>, <@${user.id}> reported a problem with this trade delivery! Please assist.`);
+        if (reaction.message.channel.name?.startsWith('trade-')) {
+            if (reaction.emoji.id === '1554592986334105620') await reaction.message.channel.send(`<a:confirm:1554592986334105620> **Order confirmed complete by <@${user.id}>!** Thank you for your purchase.`);
+            else if (reaction.emoji.id === '1554592934828179476') await reaction.message.channel.send(`<a:error:1554592934828179476> **ISSUE REPORTED:** <@&${ADMIN_ROLE_ID}>, <@${user.id}> reported a problem with this trade delivery! Please assist.`);
+        }
+    } catch (error) {
+        console.error('Reaction handling failed:', error);
     }
 });
 
 // --- MAIN INTERACTION ROUTER ---
-botClient.on('interactionCreate', async interaction => {
+async function handleInteraction(interaction) {
 
     // 1. CHAT INPUT COMMANDS
     if (interaction.isChatInputCommand()) {
@@ -327,7 +375,7 @@ botClient.on('interactionCreate', async interaction => {
                 await interaction.editReply({ embeds: [profileEmbed] });
             } catch (err) {
                 console.error('Database error in view-points:', err);
-                await interaction.editReply({ content: '<a:error:1554592934828179476> Failed to fetch user data from the database.' });
+                await sendInteractionError(interaction, '<a:error:1554592934828179476> Failed to fetch user data from the database.');
             }
         }
         if (commandLabel === 'boost-menu') {
@@ -396,7 +444,7 @@ const boostRow = new ActionRowBuilder().addComponents(
                 await interaction.editReply({ content: `✅ Successfully gave a **${discountPct}% Off Coupon** to <@${targetUser.id}>.` });
             } catch (err) {
                 console.error('Database error giving coupon:', err);
-                await interaction.editReply({ content: '❌ Failed to update database.' });
+                await sendInteractionError(interaction, '❌ Failed to update database.');
             }
         }
 
@@ -645,7 +693,7 @@ const boostRow = new ActionRowBuilder().addComponents(
                 await interaction.channel.send({ content: `Hey <@${targetUser.id}>! Here is your delivery:`, embeds: [deliveryEmbed] });
             } catch (err) {
                 console.error('Error delivering code:', err);
-                await interaction.reply({ content: 'Error delivering code.', flags: 64 });
+                await sendInteractionError(interaction, 'Error delivering code.');
             }
         }
 
@@ -683,7 +731,7 @@ const boostRow = new ActionRowBuilder().addComponents(
                 }
             }
 
-            setTimeout(() => channel.delete().catch(() => { }), 4000);
+            setTimeout(() => deleteOrderChannel(channel), 4000);
         }
     }
 
@@ -692,7 +740,7 @@ const boostRow = new ActionRowBuilder().addComponents(
         const customId = interaction.customId;
 
         if (customId.startsWith('purchase_action|')) {
-            await interaction.deferReply({ flags: 64 }).catch(() => { });
+            await interaction.deferReply({ flags: 64 });
 
             const [, productKey, productPrice] = customId.split('|');
             const sanitizedUser = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user';
@@ -739,7 +787,7 @@ const boostRow = new ActionRowBuilder().addComponents(
                 await interaction.editReply({ content: `✅ Order channel created: <#${tradeChannel.id}>` });
             } catch (err) {
                 console.error('Channel creation error:', err);
-                await interaction.editReply({ content: '❌ Failed to create trade channel. Ensure the bot has "Manage Channels" permissions.' });
+                await sendInteractionError(interaction, '❌ Failed to create trade channel. Ensure the bot has "Manage Channels" permissions.');
             }
         }
 
@@ -792,7 +840,7 @@ const boostRow = new ActionRowBuilder().addComponents(
 
         if (customId === 'close_order') {
             await interaction.reply({ content: '<:trashcan:1554593006596657262> Order cancelled. Channel closing...' });
-            setTimeout(() => interaction.channel.delete().catch(() => { }), 2000);
+            setTimeout(() => deleteOrderChannel(interaction.channel), 2000);
         }
 
         if (customId === 'buy_boost_ticket') {
@@ -840,7 +888,7 @@ const boostRow = new ActionRowBuilder().addComponents(
         await interaction.editReply({ content: `✅ Boost ticket created: <#${ticketChannel.id}>` });
     } catch (err) {
         console.error('Boost ticket error:', err);
-        await interaction.editReply({ content: '❌ Failed to create boost ticket.' });
+        await sendInteractionError(interaction, '❌ Failed to create boost ticket.');
     }
 }
 
@@ -876,7 +924,7 @@ const boostRow = new ActionRowBuilder().addComponents(
                 await interaction.editReply({ content: `✅ Ticket created: <#${ticketChannel.id}>` });
             } catch (err) {
                 console.error('Ticket error:', err);
-                await interaction.editReply({ content: '❌ Failed to create ticket.' });
+                await sendInteractionError(interaction, '❌ Failed to create ticket.');
             }
         }
     }
@@ -976,9 +1024,7 @@ const boostRow = new ActionRowBuilder().addComponents(
                 });
             } catch (err) {
                 console.error('Error handling tier_select:', err);
-                if (!interaction.replied && !interaction.deferred) {
-                    await interaction.reply({ content: '❌ An error occurred processing your selection.', flags: 64 });
-                }
+                await sendInteractionError(interaction, '❌ An error occurred processing your selection.');
             }
         }
         // B. Subcategory Selection (Fetches stock & user purchase dropdown)
@@ -1054,7 +1100,7 @@ const boostRow = new ActionRowBuilder().addComponents(
                 await interaction.editReply({ content: `✅ Ticket created: <#${ticketChannel.id}>` });
             } catch (err) {
                 console.error('Ticket error:', err);
-                await interaction.editReply({ content: '❌ Failed to create ticket channel.' });
+                await sendInteractionError(interaction, '❌ Failed to create ticket channel.');
             }
         }
 
@@ -1098,26 +1144,33 @@ const boostRow = new ActionRowBuilder().addComponents(
                 const feeAmount = (parseFloat(productPrice) * 0.05);
                 const finalPrice = (parseFloat(productPrice) + feeAmount).toFixed(2);
 
-                const stripeSession = await stripe.checkout.sessions.create({
-                    payment_method_types: ['card'],
-                    line_items: [{
-                        price_data: {
-                            currency: 'usd',
-                            product_data: { name: productKey.toUpperCase() + ' (+5% Processing Fee)' },
-                            // Update the unit amount to charge the final price with the fee included
-                            unit_amount: Math.round(parseFloat(finalPrice) * 100),
-                        },
-                        quantity: 1,
-                    }],
-                    mode: 'payment',
-                    success_url: 'https://discord.com',
-                    cancel_url: 'https://discord.com',
-                    metadata: {
-                        discord_user_id: interaction.user.id,
-                        item_id: productKey,
-                        channel_id: orderChannel.id
-                    }
-                });
+                let stripeSession;
+                try {
+                    stripeSession = await stripe.checkout.sessions.create({
+                        payment_method_types: ['card'],
+                        line_items: [{
+                            price_data: {
+                                currency: 'usd',
+                                product_data: { name: productKey.toUpperCase() + ' (+5% Processing Fee)' },
+                                // Update the unit amount to charge the final price with the fee included
+                                unit_amount: Math.round(parseFloat(finalPrice) * 100),
+                            },
+                            quantity: 1,
+                        }],
+                        mode: 'payment',
+                        success_url: 'https://discord.com',
+                        cancel_url: 'https://discord.com',
+                        metadata: {
+                            discord_user_id: interaction.user.id,
+                            item_id: productKey,
+                            channel_id: orderChannel.id
+                        }
+                    });
+                } catch (stripeError) {
+                    console.error('Stripe checkout creation failed:', stripeError);
+                    await sendInteractionError(interaction, '<a:error:1554592934828179476> Unable to create a Stripe checkout link. Please try again later or contact support.');
+                    return;
+                }
 
                 const checkoutEmbed = new EmbedBuilder()
                     .setTitle('<:stripe:1554263177829687398> Stripe Card Checkout')
@@ -1187,15 +1240,36 @@ const boostRow = new ActionRowBuilder().addComponents(
         await interaction.reply({ embeds: [confirmationEmbed] });
         await interaction.channel.send(`<a:be:1554263397842026507> <@&${ADMIN_ROLE_ID}>, <@${interaction.user.id}> submitted transaction proof for **${productKey}**!`);
     }
-}); // Closes the botClient.on('interactionCreate') event
+}
+
+botClient.on('interactionCreate', async interaction => {
+    try {
+        await handleInteraction(interaction);
+    } catch (error) {
+        console.error(`Interaction failed (${interaction.commandName || interaction.customId || interaction.id}):`, error);
+        await sendInteractionError(interaction);
+    }
+});
 
 // START SERVER & LOGIN
 const port = process.env.PORT || 3000;
 webApp.get('/', (req, res) => {
     res.status(200).send('Bot is running');
 });
-webApp.listen(port, () => console.log(`HTTP Listener running on port ${port}`));
-botClient.login(process.env.DISCORD_TOKEN);
+webApp.listen(port, () => console.log(`HTTP Listener running on port ${port}`))
+    .on('error', error => {
+        console.error('HTTP listener error:', error);
+    });
+
+async function loginBot() {
+    try {
+        await botClient.login(process.env.DISCORD_TOKEN);
+    } catch (error) {
+        console.error('Discord login failed:', error);
+    }
+}
+
+loginBot();
 
 const RENDER_URL = "https://discord-roblox-bot-1fqt.onrender.com/"; 
 

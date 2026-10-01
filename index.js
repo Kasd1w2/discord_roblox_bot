@@ -491,7 +491,7 @@ const boostRow = new ActionRowBuilder().addComponents(
                         `↕️ Users are sorted by price in USD, select your budget within the dropdown to see users. All BINs are negotiable.\n\n` +
                         `Payment Methods accepted: 🪙 Crypto, ✨ Clean Limiteds\n\n` +
                         `For an extra +% we can also take: 🅿️ Paypal, 💲 CashApp, 🍎 Apple Pay, ♈ Venmo, 💤 Zelle, 🏦 Bank Transfer and 🍁 Interac.\n\n` +
-                        `Select an option below to purchase then make a ticket.`
+                        `<a:shop1:1554264889491726377> Select an option below to purchase then make a ticket.`
                     )
                     .setColor(0x2B2D31);
 
@@ -584,7 +584,7 @@ const boostRow = new ActionRowBuilder().addComponents(
                     `We can source **practically any Limited or Toycode** upon request.\n\n` +
                     `<a:time:1554592842935173240> **Sourcing Time:** 12 Hours — 7 Days\n` +
                     `<a:Cash_3D:1554592754875768902> **30% Deposit Required** (Fully refundable if missing)\n\n` +
-                    `<a:heist:1554267239992131756>> **Start Sourcing:** Open a ticket in <#1542544665969164308>!`
+                    `<a:heist:1554267239992131756> **Start Sourcing:** Open a ticket in <#1542544665969164308>!`
                 )
                 .setColor(0x3B82F6);
 

@@ -69,6 +69,10 @@ module.exports = [
         .addNumberOption(opt => opt.setName('price').setDescription('Final order price (needed to award points)').setRequired(false)),
 
     new SlashCommandBuilder()
+        .setName("deco-shop")
+        .setDescription('Spawn the interactive Decoration Shop embed in this channel (Admin)'),
+        
+    new SlashCommandBuilder()
         .setName("give-points")
         .setDescription('Give points to a user manually (Admin)')
         .addUserOption(opt => opt.setName('user').setDescription('The user to receive points').setRequired(true))

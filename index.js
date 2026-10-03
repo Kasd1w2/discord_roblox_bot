@@ -314,11 +314,54 @@ async function handleInteraction(interaction) {
     if (interaction.isChatInputCommand()) {
         const commandLabel = interaction.commandName;
 
-        if (['setup-store', 'boost-menu','restock', 'remove-stock', 'deliver', 'close', 'coupon-store', 'give-coupon', 'view-points'].includes(commandLabel)) {
+        if (['setup-store', 'boost-menu','restock', 'remove-stock', 'deliver', 'close', 'coupon-store', 'give-coupon', 'give-points', 'view-points'].includes(commandLabel)) {
             if (!interaction.member.roles.cache.has(ADMIN_ROLE_ID)) {
                 return interaction.reply({ content: '🛑 You do not have permission to use this command.', flags: 64 });
             }
         }   
+
+        if (commandLabel === 'give-points') {
+            const targetUser = interaction.options.getUser('user');
+            const priceToCalculate = interaction.options.getNumber('pricetocalculate');
+            const directPoints = interaction.options.getNumber('points');
+            const hasPrice = priceToCalculate !== null;
+            const hasPoints = directPoints !== null;
+
+            if (hasPrice === hasPoints) {
+                return interaction.reply({ content: '<a:error:1554592934828179476> Provide exactly one option: `pricetocalculate` or `points`.', flags: 64 });
+            }
+            if (hasPrice && (!Number.isFinite(priceToCalculate) || priceToCalculate <= 0)) {
+                return interaction.reply({ content: '<a:error:1554592934828179476> The price must be a positive number in USD.', flags: 64 });
+            }
+            if (hasPoints && (!Number.isSafeInteger(directPoints) || directPoints <= 0)) {
+                return interaction.reply({ content: '<a:error:1554592934828179476> Points must be a positive whole number.', flags: 64 });
+            }
+
+            const pointsToGive = hasPrice ? calculatePoints(priceToCalculate) : directPoints;
+            await interaction.deferReply({ flags: 64 });
+
+            try {
+                let userLedger = await Ledger.findOne({ discordId: targetUser.id });
+                if (!userLedger) userLedger = new Ledger({ discordId: targetUser.id, purchases: [], points: 0, coupons: [] });
+
+                const newBalance = (userLedger.points || 0) + pointsToGive;
+                if (!Number.isSafeInteger(newBalance)) {
+                    return interaction.editReply({ content: '<a:error:1554592934828179476> This amount would exceed the maximum points balance.' });
+                }
+
+                userLedger.points = newBalance;
+                await userLedger.save();
+
+                return interaction.editReply({
+                    content: `<a:MTF_Credits:1554593086544412803> Gave **${pointsToGive} points** to <@${targetUser.id}>` +
+                        (hasPrice ? ` based on **$${priceToCalculate.toFixed(2)} USD**` : '') +
+                        `.\nNew balance: **${newBalance} points**.`
+                });
+            } catch (err) {
+                console.error('Database error in give-points:', err);
+                return sendInteractionError(interaction, '<a:error:1554592934828179476> Failed to give points. Please try again later.');
+            }
+        }
 
         if (commandLabel === 'view-points') {
             await interaction.deferReply();

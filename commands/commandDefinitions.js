@@ -69,6 +69,12 @@ module.exports = [
         .addNumberOption(opt => opt.setName('price').setDescription('Final order price (needed to award points)').setRequired(false)),
 
     new SlashCommandBuilder()
+        .setName("give-points")
+        .setDescription('Give points to a user manually (Admin)')
+        .addUserOption(opt => opt.setName('user').setDescription('The user to receive points').setRequired(true))
+        .addNumberOption(opt => opt.setName('pricetocalculate').setDescription('Price to calculate points').setRequired(false))
+        .addNumberOption(opt => opt.setName('points').setDescription('Number of points to give').setRequired(false)),
+    new SlashCommandBuilder()
         .setName('coupon-store')
         .setDescription('Drop the interactive Coupon Store embed in this channel (Admin)'),
 

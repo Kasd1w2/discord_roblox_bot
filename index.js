@@ -987,7 +987,7 @@ const boostRow = new ActionRowBuilder().addComponents(
                     .setPlaceholder('Select the shop price...')
                     .addOptions(DECO_PACKAGES.map(pkg => ({
                         label: `$${pkg.shopPrice} Shop Tier → $${pkg.price}`,
-                        description: 'Shop price without Nitro; manual gift-link delivery',
+                        description: 'Shop price; manual gift-link delivery',
                         value: `deco_${pkg.shopPrice}|${pkg.price}`,
                         emoji: '<:price:1554267169800585227>'
                     })));

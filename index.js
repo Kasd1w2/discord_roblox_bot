@@ -480,7 +480,7 @@ const boostRow = new ActionRowBuilder().addComponents(
                     '**<a:Termss:1554267208882978896> Order Details**\n' +
                     '• **Delivery:** Staff delivers your decoration manually via gift link after payment confirmation.\n' +
                     '• **Selection:** Send the exact decoration name or Discord shop link in your purchase ticket.\n' +
-                    '• **Pricing:** Match your decoration to its shop price **without Nitro**. All prices below are in USD.\n' +
+                    '• **Pricing:** Match your decoration to its shop price. All prices below are in **USD**.\n' +
                     '• **Support:** Staff will help arrange your order and payment inside the ticket.\n\n' +
                     '<a:important:1554267188272308248> **Important:** Select the tier matching the decoration you want before paying.\n\n' +
                     '**<:price:1554267169800585227> Pricing Packages**'
@@ -984,7 +984,7 @@ const boostRow = new ActionRowBuilder().addComponents(
 
                 const packageMenu = new StringSelectMenuBuilder()
                     .setCustomId('select_deco_package')
-                    .setPlaceholder('Select the shop price without Nitro...')
+                    .setPlaceholder('Select the shop price...')
                     .addOptions(DECO_PACKAGES.map(pkg => ({
                         label: `$${pkg.shopPrice} Shop Tier → $${pkg.price}`,
                         description: 'Shop price without Nitro; manual gift-link delivery',
@@ -996,7 +996,7 @@ const boostRow = new ActionRowBuilder().addComponents(
                     .setTitle('<a:wumpus:1554265012338434078> Decoration Purchase')
                     .setDescription(
                         `Welcome <@${interaction.user.id}>!\n\n` +
-                        'Select the tier matching your decoration\'s Discord shop price **without Nitro**.\n\n' +
+                        'Select the tier matching your decoration\'s Discord shop price.\n\n' +
                         'Please send the exact decoration name or shop link in this ticket. Staff will deliver your order manually via gift link after payment confirmation.'
                     )
                     .setColor(0xff73fa);

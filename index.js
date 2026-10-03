@@ -622,7 +622,8 @@ const boostRow = new ActionRowBuilder().addComponents(
 
                 const buyActionBtn = new ButtonBuilder()
                     .setCustomId(`purchase_action|${productKey}|${productPrice}`)
-                    .setLabel(`<a:shop1:1554264889491726377> Purchase ${productTitle}`.substring(0, 80))
+                    .setLabel(`Purchase ${productTitle}`.substring(0, 80))
+                    .setEmoji('<a:shop1:1554264889491726377>')
                     .setStyle(ButtonStyle.Primary);
 
                 await targetForum.threads.create({

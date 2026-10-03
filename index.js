@@ -206,8 +206,9 @@ function generatePaymentMenu(productKey, productPrice, channelId) {
         .setCustomId(`payment_select|${productKey}|${productPrice}|${channelId}`)
         .setPlaceholder('Choose your payment method...')
         .addOptions([
-            { label: 'Pay with Card (Stripe)', description: 'Instant automated delivery via Credit/Debit card', value: 'select_stripe', emoji: '<:stripe:1554263177829687398>' },
-            { label: 'Pay with Cryptocurrency', description: 'Pay using ETH, LTC, BTC, or SOL', value: 'select_crypto', emoji: '<:crypto:1554263320997920799>' }
+            { label: 'Pay with Card (Stripe)', description: 'Pay by Credit/Debit card; staff delivers manually', value: 'select_stripe', emoji: '<:stripe:1554263177829687398>' },
+            { label: 'Pay with Cryptocurrency', description: 'Pay using ETH, LTC, BTC, or SOL', value: 'select_crypto', emoji: '<:crypto:1554263320997920799>' },
+            { label: 'Other', description: 'PayPal, Limiteds, or another payment method', value: 'select_other', emoji: '<:dots:1555973916944637952>' }
         ]);
     return new ActionRowBuilder().addComponents(selectMenu);
 }
@@ -222,7 +223,6 @@ function getCancelButtonRow() {
 }
 
 // --- STRIPE WEBHOOK ENDPOINT ---
-// --- STRIPE WEBHOOK ENDPOINT ---
 webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
     const signatureHeader = req.headers['stripe-signature'];
     let stripeEvent;
@@ -236,12 +236,16 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
     if (stripeEvent.type === 'checkout.session.completed') {
         try {
             const session = stripeEvent.data.object;
+            if (session.payment_status !== 'paid') {
+                return res.status(200).json({ received: true });
+            }
+
             const buyerDiscordId = session.metadata.discord_user_id;
             const targetItemId = session.metadata.item_id;
             const channelId = session.metadata.channel_id;
             const usdPricePaid = session.amount_total / 100;
 
-            updateBotStatus(`💳 Payment received! Processing ${targetItemId.toUpperCase()}...`);
+            updateBotStatus(`💳 Payment received! Awaiting manual delivery of ${targetItemId.toUpperCase()}...`);
 
             let userLedger = await Ledger.findOne({ discordId: buyerDiscordId });
             if (!userLedger) {
@@ -250,51 +254,17 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
             
             const pointsEarned = calculatePoints(usdPricePaid);
             userLedger.points += pointsEarned;
+            userLedger.purchases.push({ item: targetItemId, code: 'Manual delivery required' });
+            await userLedger.save();
 
             const orderChannel = await botClient.channels.fetch(channelId);
-
-            // 1. IF IT'S A BOOST PACKAGE (No inventory code needed)
-            if (targetItemId.includes('boosts')) {
-                userLedger.purchases.push({ item: targetItemId, code: 'Server Boost Service' });
-                await userLedger.save();
-
-                if (orderChannel) {
-                    await orderChannel.send(
-                        `<a:confirm:1554592986334105620> **Payment Confirmed!** Thank you for your purchase, <@${buyerDiscordId}>.\n` +
-                        `<a:MTF_Credits:1554593086544412803> You earned **${pointsEarned} points** for this transaction!\n\n` +
-                        `<a:be:1554263397842026507> <@&${ADMIN_ROLE_ID}> **A boost package has been paid for and requires manual delivery!**`
-                    );
-                }
-            } 
-            // 2. IF IT'S A NORMAL ACCOUNT/ITEM (Requires inventory code)
-            else {
-                const itemRecord = await Inventory.findOne({ itemId: targetItemId });
-
-                if (!itemRecord || itemRecord.codes.length === 0) {
-                    console.error(`CRITICAL: User ${buyerDiscordId} paid for ${targetItemId} but stock is empty!`);
-                    updateBotStatus(`⚠️ ERROR: Stock empty for ${targetItemId.toUpperCase()}!`);
-                    return res.status(200).json({ received: true });
-                }
-
-                const purchasedCode = itemRecord.codes.shift();
-                await itemRecord.save();
-                
-                userLedger.purchases.push({ item: targetItemId, code: purchasedCode });
-                await userLedger.save();
-
-                if (orderChannel) {
-                    const deliveryMessage = await orderChannel.send(
-                        `<a:confirm:1554592986334105620> **Payment Confirmed!** Thank you for your purchase, <@${buyerDiscordId}>.\n` +
-                        `<a:MTF_Credits:1554593086544412803> You earned **${pointsEarned} points** for this transaction!\n\n` +
-                        `Here is your code for **${targetItemId}**:\n` +
-                        `\`\`\`${purchasedCode}\`\`\`\n` +
-                        `Please use the reactions below to confirm delivery or report an issue.`
-                    );
-                    await deliveryMessage.react('1554592986334105620');
-                    await deliveryMessage.react('1554592934828179476');
-                    
-                    await orderChannel.send(`<a:thanks:1554264929916158003> Thank you again for your business, <@${buyerDiscordId}>! If you have a moment, please drop a vouch in <#1542340439166820434>.`);
-                }
+            if (orderChannel) {
+                await orderChannel.send(
+                    `<a:confirm:1554592986334105620> **Payment Confirmed!** Thank you for your purchase, <@${buyerDiscordId}>.\n` +
+                    `<a:MTF_Credits:1554593086544412803> You earned **${pointsEarned} points** for this transaction!\n\n` +
+                    `Your order for **${targetItemId.replace(/_/g, ' ').toUpperCase()}** will be delivered manually by staff. Please wait here for assistance.\n` +
+                    `<a:be:1554263397842026507> <@&${ADMIN_ROLE_ID}> **This order has been paid for and requires manual delivery!**`
+                );
             }
         } catch (dbErr) {
             console.error('Error handling checkout completion webhook:', dbErr);
@@ -384,7 +354,7 @@ async function handleInteraction(interaction) {
             const boostEmbed = new EmbedBuilder()
     .setDescription(
         '# <a:wumpus:1554265012338434078> Discord Boosting Service\n\n' +
-        'Select a package below to upgrade your server instantly.\n\n' +
+        'Select a package below to upgrade your server. Staff will deliver your boosts after payment confirmation.\n\n' +
         '**<a:Termss:1554267208882978896> Terms & Conditions**\n' +
         '• **Duration:** Boosts remain active for 25–30 days (total boosts depend on your chosen tier).\n' +
         '• **No Warranty:** All deliveries are final. We do not provide an ongoing replacement warranty for this service.\n' +
@@ -519,9 +489,7 @@ const boostRow = new ActionRowBuilder().addComponents(
                 const productKey = interaction.options.getString('item_id');
                 const robloxLink = interaction.options.getString('catalog_url');
                 const thumbnailPic = interaction.options.getString('image_url');
-                const deliveryMethod = interaction.options.getString('delivery_method');
-
-                if (!productTitle || productPrice === null || !productKey || !deliveryMethod) {
+                if (!productTitle || productPrice === null || !productKey) {
                     return interaction.editReply({ content: '❌ Missing required fields for a Single Item forum post.' });
                 }
 
@@ -530,7 +498,7 @@ const boostRow = new ActionRowBuilder().addComponents(
 
                 const embedFields = [
                     { name: 'Price', value: `$${productPrice} USD`, inline: true },
-                    { name: 'Delivery', value: deliveryMethod, inline: true },
+                    { name: 'Delivery', value: 'Manual delivery after payment confirmation', inline: true },
                     { name: '\u200B', value: '\u200B', inline: true }
                 ];
 
@@ -571,7 +539,7 @@ const boostRow = new ActionRowBuilder().addComponents(
             const formattedItems = history.length > 0 ? history.map(entry => `• **${entry.item}**: \`${entry.code}\``).join('\n') : 'No items yet.';
 
             await interaction.reply({
-                content: `**Your Profile**\n⭐ Points: \`${points}\`\n🎟️ Coupons: \`${coupons}\`\n\n**Your Active Codes:**\n${formattedItems}`,
+                content: `**Your Profile**\n⭐ Points: \`${points}\`\n🎟️ Coupons: \`${coupons}\`\n\n**Your Purchase History:**\n${formattedItems}`,
                 flags: 64
             });
         }
@@ -668,7 +636,7 @@ const boostRow = new ActionRowBuilder().addComponents(
                     // Remove that exact account from the database list
                     deliveredCode = itemRecord.codes.splice(codeIndex, 1)[0];
                 } else {
-                    // If no specific account was provided, just pull the first one (for automated item codes)
+                    // If no specific account was provided, pull the first entry for this staff-requested delivery.
                     deliveredCode = itemRecord.codes.shift();
                 }
 
@@ -1135,10 +1103,10 @@ const boostRow = new ActionRowBuilder().addComponents(
         if (customId.startsWith('payment_select|')) {
             const [, productKey, productPrice, channelId] = customId.split('|');
             const selectedValue = interaction.values[0];
+            await interaction.deferUpdate();
             const orderChannel = await interaction.guild.channels.fetch(channelId);
 
             if (selectedValue === 'select_stripe') {
-                await interaction.deferUpdate();
 
                 // Calculate the 5% processing fee
                 const feeAmount = (parseFloat(productPrice) * 0.05);
@@ -1174,7 +1142,7 @@ const boostRow = new ActionRowBuilder().addComponents(
 
                 const checkoutEmbed = new EmbedBuilder()
                     .setTitle('<:stripe:1554263177829687398> Stripe Card Checkout')
-                    .setDescription(`Click below to pay safely. Delivery is automated once paid.\n\n<a:important:1554267188272308248> *A 5% processing fee ($${feeAmount.toFixed(2)}) has been added to your total.*`)
+                    .setDescription(`Click below to pay safely. Once payment is confirmed, staff will deliver your order manually.\n\n<a:important:1554267188272308248> *A 5% processing fee ($${feeAmount.toFixed(2)}) has been added to your total.*`)
                     .setColor(0x635BFF);
 
                 // Update the button label to show the final price with the fee included
@@ -1188,12 +1156,11 @@ const boostRow = new ActionRowBuilder().addComponents(
             }
 
             if (selectedValue === 'select_crypto') {
-                await interaction.deferUpdate();
                 const amounts = await getCryptoAmounts(parseFloat(productPrice));
 
                 const cryptoEmbed = new EmbedBuilder()
                     .setTitle('<:crypto:1554263320997920799> Crypto Payment Gateway')
-                    .setDescription(`Send exact live amount for **$${productPrice} USD**:`)
+                    .setDescription(`Send exact live amount for **$${productPrice} USD**. Once staff verifies your payment, your order will be delivered manually.`)
                     .setColor(0xF7931A)
                     .addFields(
                         { name: '<:eth:1554263242937860127> ETH', value: `\`\`\`${amounts.eth} ETH\`\`\`\n\`\`\`0x42d01fE1f89C6cDE28ef7a34Ef5A7B452eD6B271\`\`\`` },
@@ -1204,6 +1171,24 @@ const boostRow = new ActionRowBuilder().addComponents(
 
                 const submitTxBtn = new ButtonBuilder().setCustomId(`open_tx_modal|${productKey}`).setLabel('Submit Transaction Hash').setStyle(ButtonStyle.Success);
                 await orderChannel.send({ embeds: [cryptoEmbed], components: [new ActionRowBuilder().addComponents(submitTxBtn, getCancelButtonRow().components[0])] });
+                await interaction.message.delete().catch(() => { });
+            }
+
+            if (selectedValue === 'select_other') {
+                const otherEmbed = new EmbedBuilder()
+                    .setTitle('<:dots:1555973916944637952> Other Payment Methods')
+                    .setDescription(
+                        `Order for **${productKey.replace(/_/g, ' ').toUpperCase()}**.\nTotal Price: \`$${productPrice} USD\`\n\n` +
+                        `Please list what you would like to pay with in this ticket (for example: PayPal, Limiteds, or another payment method).\n\n` +
+                        `Staff will discuss the payment details with you and deliver your order manually once payment is confirmed.`
+                    )
+                    .setColor(0x5865F2);
+
+                await orderChannel.send({
+                    content: `<@${interaction.user.id}> | <@&${ADMIN_ROLE_ID}>`,
+                    embeds: [otherEmbed],
+                    components: [getCancelButtonRow()]
+                });
                 await interaction.message.delete().catch(() => { });
             }
         }

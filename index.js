@@ -486,7 +486,7 @@ const boostRow = new ActionRowBuilder().addComponents(
                     '**<:price:1554267169800585227> Pricing Packages**'
                 )
                 .addFields(DECO_PACKAGES.map(pkg => ({
-                    name: `<:price:1554267169800585227> $${pkg.shopPrice} Shop Tier`,
+                    name: `<a:pastelbolt:1555984930843009064> $${pkg.shopPrice} Shop Tier`,
                     value: `\`\`\`bash\nOur Price:\n$${pkg.price}\n\`\`\``,
                     inline: true
                 })))

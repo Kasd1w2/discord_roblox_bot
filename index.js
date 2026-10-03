@@ -21,6 +21,21 @@ const {
     PermissionFlagsBits
 } = require('discord.js');
 
+const DECO_PACKAGES = [
+    { shopPrice: '4.99', price: '2.00' },
+    { shopPrice: '5.99', price: '2.40' },
+    { shopPrice: '6.99', price: '2.80' },
+    { shopPrice: '7.99', price: '3.20' },
+    { shopPrice: '8.99', price: '3.60' },
+    { shopPrice: '9.99', price: '4.00' },
+    { shopPrice: '10.99', price: '4.40' },
+    { shopPrice: '11.99', price: '4.90' },
+    { shopPrice: '15.99', price: '5.40' },
+    { shopPrice: '20.99', price: '6.00' },
+    { shopPrice: '23.96', price: '6.50' },
+    { shopPrice: '32.97', price: '9.90' }
+];
+
 // Category mapping helper
 const TIERS = {
     'high_tier': {
@@ -201,6 +216,19 @@ function calculatePoints(usdPrice) {
     return 10;
 }
 
+function formatProductName(productKey) {
+    const decoPackage = DECO_PACKAGES.find(pkg => productKey === `deco_${pkg.shopPrice}`);
+    return decoPackage
+        ? `Discord Decoration ($${decoPackage.shopPrice} Shop Tier)`
+        : productKey.replace(/_/g, ' ').toUpperCase();
+}
+
+function getDecorationDetails(productKey) {
+    return productKey.startsWith('deco_')
+        ? '\n\nPlease send the exact decoration name or shop link in this ticket. Staff delivers decorations manually via gift link after payment confirmation.'
+        : '';
+}
+
 function generatePaymentMenu(productKey, productPrice, channelId) {
     const selectMenu = new StringSelectMenuBuilder()
         .setCustomId(`payment_select|${productKey}|${productPrice}|${channelId}`)
@@ -262,7 +290,7 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
                 await orderChannel.send(
                     `<a:confirm:1554592986334105620> **Payment Confirmed!** Thank you for your purchase, <@${buyerDiscordId}>.\n` +
                     `<a:MTF_Credits:1554593086544412803> You earned **${pointsEarned} points** for this transaction!\n\n` +
-                    `Your order for **${targetItemId.replace(/_/g, ' ').toUpperCase()}** will be delivered manually by staff. Please wait here for assistance.\n` +
+                    `Your order for **${formatProductName(targetItemId)}** will be delivered manually${targetItemId.startsWith('deco_') ? ' via gift link' : ''} by staff. Please wait here for assistance.\n` +
                     `<a:be:1554263397842026507> <@&${ADMIN_ROLE_ID}> **This order has been paid for and requires manual delivery!**`
                 );
             }
@@ -314,7 +342,7 @@ async function handleInteraction(interaction) {
     if (interaction.isChatInputCommand()) {
         const commandLabel = interaction.commandName;
 
-        if (['setup-store', 'boost-menu','restock', 'remove-stock', 'deliver', 'close', 'coupon-store', 'give-coupon', 'give-points', 'view-points'].includes(commandLabel)) {
+        if (['setup-store', 'boost-menu', 'deco-shop', 'restock', 'remove-stock', 'deliver', 'close', 'coupon-store', 'give-coupon', 'give-points', 'view-points'].includes(commandLabel)) {
             if (!interaction.member.roles.cache.has(ADMIN_ROLE_ID)) {
                 return interaction.reply({ content: '🛑 You do not have permission to use this command.', flags: 64 });
             }
@@ -441,6 +469,40 @@ const boostRow = new ActionRowBuilder().addComponents(
             await interaction.editReply({ content: '✅ Boost menu deployed successfully!' });
         }
 
+
+        if (commandLabel === 'deco-shop') {
+            await interaction.deferReply({ flags: 64 });
+
+            const decoEmbed = new EmbedBuilder()
+                .setDescription(
+                    '# <a:wumpus:1554265012338434078> Discord Decoration Shop\n\n' +
+                    'Pick a price tier below to purchase your Discord decoration.\n\n' +
+                    '**<a:Termss:1554267208882978896> Order Details**\n' +
+                    '• **Delivery:** Staff delivers your decoration manually via gift link after payment confirmation.\n' +
+                    '• **Selection:** Send the exact decoration name or Discord shop link in your purchase ticket.\n' +
+                    '• **Pricing:** Match your decoration to its shop price **without Nitro**. All prices below are in USD.\n' +
+                    '• **Support:** Staff will help arrange your order and payment inside the ticket.\n\n' +
+                    '<a:important:1554267188272308248> **Important:** Select the tier matching the decoration you want before paying.\n\n' +
+                    '**<:price:1554267169800585227> Pricing Packages**'
+                )
+                .addFields(DECO_PACKAGES.map(pkg => ({
+                    name: `<:price:1554267169800585227> $${pkg.shopPrice} Shop Tier`,
+                    value: `\`\`\`bash\nOur Price:\n$${pkg.price}\n\`\`\``,
+                    inline: true
+                })))
+                .setColor(0xff73fa);
+
+            const purchaseBtn = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('buy_deco_ticket')
+                    .setLabel('Purchase Decorations')
+                    .setEmoji('<a:shop1:1554264889491726377>')
+                    .setStyle(ButtonStyle.Primary)
+            );
+
+            await interaction.channel.send({ embeds: [decoEmbed], components: [purchaseBtn] });
+            return interaction.editReply({ content: '✅ Decoration shop deployed successfully!' });
+        }
 
         if (commandLabel === 'give-coupon') {
             await interaction.deferReply({ flags: 64 });
@@ -828,11 +890,11 @@ const boostRow = new ActionRowBuilder().addComponents(
     const [, productKey, productPrice] = customId.split('|');
     
     // Removes underscores and capitalizes (e.g., "6_boosts" -> "6 BOOSTS")
-    const formattedName = productKey.replace(/_/g, ' ').toUpperCase(); 
+    const formattedName = formatProductName(productKey);
 
     const polishedEmbed = new EmbedBuilder()
         .setTitle('<a:folder:1554593038003609620> Secure Checkout Portal')
-        .setDescription(`Order for **${formattedName}**.\nTotal Price: \`$${productPrice} USD\``)
+        .setDescription(`Order for **${formattedName}**.\nTotal Price: \`$${productPrice} USD\`${getDecorationDetails(productKey)}`)
         .setColor(0x5865F2);
 
     await interaction.update({
@@ -904,6 +966,54 @@ const boostRow = new ActionRowBuilder().addComponents(
 }
 
 
+        if (customId === 'buy_deco_ticket') {
+            await interaction.deferReply({ flags: 64 });
+            const sanitizedUsername = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user';
+
+            try {
+                const ticketChannel = await interaction.guild.channels.create({
+                    name: `trade-deco-${sanitizedUsername}`.substring(0, 100),
+                    type: ChannelType.GuildText,
+                    permissionOverwrites: [
+                        { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+                        { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                        { id: botClient.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                        { id: ADMIN_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
+                    ]
+                });
+
+                const packageMenu = new StringSelectMenuBuilder()
+                    .setCustomId('select_deco_package')
+                    .setPlaceholder('Select the shop price without Nitro...')
+                    .addOptions(DECO_PACKAGES.map(pkg => ({
+                        label: `$${pkg.shopPrice} Shop Tier → $${pkg.price}`,
+                        description: 'Shop price without Nitro; manual gift-link delivery',
+                        value: `deco_${pkg.shopPrice}|${pkg.price}`,
+                        emoji: '<:price:1554267169800585227>'
+                    })));
+
+                const welcomeEmbed = new EmbedBuilder()
+                    .setTitle('<a:wumpus:1554265012338434078> Decoration Purchase')
+                    .setDescription(
+                        `Welcome <@${interaction.user.id}>!\n\n` +
+                        'Select the tier matching your decoration\'s Discord shop price **without Nitro**.\n\n' +
+                        'Please send the exact decoration name or shop link in this ticket. Staff will deliver your order manually via gift link after payment confirmation.'
+                    )
+                    .setColor(0xff73fa);
+
+                await ticketChannel.send({
+                    content: `<@${interaction.user.id}> | <@&${ADMIN_ROLE_ID}>`,
+                    embeds: [welcomeEmbed],
+                    components: [new ActionRowBuilder().addComponents(packageMenu), getCancelButtonRow()]
+                });
+
+                return interaction.editReply({ content: `✅ Decoration ticket created: <#${ticketChannel.id}>` });
+            } catch (err) {
+                console.error('Decoration ticket error:', err);
+                return sendInteractionError(interaction, '<a:error:1554592934828179476> Failed to create decoration ticket.');
+            }
+        }
+
         if (customId.startsWith('create_user_ticket|')) {
             await interaction.deferReply({ flags: 64 });
             const [, categoryName] = customId.split('|');
@@ -944,16 +1054,23 @@ const boostRow = new ActionRowBuilder().addComponents(
     if (interaction.isStringSelectMenu()) {
         const customId = interaction.customId;
 
-        if (customId === 'select_boost_package') {
+        if (customId === 'select_boost_package' || customId === 'select_deco_package') {
             await interaction.deferUpdate();
             
             const [productKey, productPrice] = interaction.values[0].split('|');
+            const decoPackage = customId === 'select_deco_package'
+                ? DECO_PACKAGES.find(pkg => interaction.values[0] === `deco_${pkg.shopPrice}|${pkg.price}`)
+                : null;
+            if (customId === 'select_deco_package' && !decoPackage) {
+                return sendInteractionError(interaction, '<a:error:1554592934828179476> Invalid decoration price tier. Please select a tier from the menu.');
+            }
+            const deliveryDetails = getDecorationDetails(productKey);
             let userLedger = await Ledger.findOne({ discordId: interaction.user.id });
 
             if (userLedger && userLedger.coupons && userLedger.coupons.length > 0) {
                 const couponEmbed = new EmbedBuilder()
                     .setTitle('<:coupon:1554581616112832513> Discount Coupon Available!')
-                    .setDescription(`You have available coupons! Would you like to apply a coupon to this purchase?`)
+                    .setDescription(`You have available coupons! Would you like to apply a coupon to this purchase?${deliveryDetails}`)
                     .setColor(0xFFD700);
 
                 const couponRow = new ActionRowBuilder().addComponents(
@@ -963,10 +1080,10 @@ const boostRow = new ActionRowBuilder().addComponents(
                 
                 await interaction.editReply({ embeds: [couponEmbed], components: [couponRow] });
             } else {
-                const formattedName = productKey.replace(/_/g, ' ').toUpperCase();
+                const formattedName = formatProductName(productKey);
                 const checkoutEmbed = new EmbedBuilder()
                     .setTitle('<a:folder:1554593038003609620> Secure Checkout Portal')
-                    .setDescription(`Order for **${formattedName}**.\nTotal Price: \`$${productPrice} USD\``)
+                    .setDescription(`Order for **${formattedName}**.\nTotal Price: \`$${productPrice} USD\`${deliveryDetails}`)
                     .setColor(0x5865F2);
 
                 await interaction.editReply({
@@ -1128,12 +1245,12 @@ const boostRow = new ActionRowBuilder().addComponents(
     await userLedger.save();
 
     // Removes underscores and capitalizes (e.g., "6_boosts" -> "6 BOOSTS")
-    const formattedName = productKey.replace(/_/g, ' ').toUpperCase();
+    const formattedName = formatProductName(productKey);
     const newPrice = (parseFloat(originalPrice) * (1 - (discountPct / 100))).toFixed(2);
     
     const discountedEmbed = new EmbedBuilder()
         .setTitle('<a:folder:1554593038003609620> Secure Checkout Portal (Discount Applied)')
-        .setDescription(`Order for **${formattedName}**\nNew Price: \`$${newPrice} USD\` <:price:1554267169800585227>`)
+        .setDescription(`Order for **${formattedName}**\nNew Price: \`$${newPrice} USD\` <:price:1554267169800585227>${getDecorationDetails(productKey)}`)
         .setColor(0x00FF00);
 
     await interaction.editReply({ 
@@ -1162,7 +1279,7 @@ const boostRow = new ActionRowBuilder().addComponents(
                         line_items: [{
                             price_data: {
                                 currency: 'usd',
-                                product_data: { name: productKey.toUpperCase() + ' (+5% Processing Fee)' },
+                                product_data: { name: formatProductName(productKey) + ' (+5% Processing Fee)' },
                                 // Update the unit amount to charge the final price with the fee included
                                 unit_amount: Math.round(parseFloat(finalPrice) * 100),
                             },
@@ -1185,7 +1302,7 @@ const boostRow = new ActionRowBuilder().addComponents(
 
                 const checkoutEmbed = new EmbedBuilder()
                     .setTitle('<:stripe:1554263177829687398> Stripe Card Checkout')
-                    .setDescription(`Click below to pay safely. Once payment is confirmed, staff will deliver your order manually.\n\n<a:important:1554267188272308248> *A 5% processing fee ($${feeAmount.toFixed(2)}) has been added to your total.*`)
+                    .setDescription(`Click below to pay safely. Once payment is confirmed, staff will deliver your order manually.${getDecorationDetails(productKey)}\n\n<a:important:1554267188272308248> *A 5% processing fee ($${feeAmount.toFixed(2)}) has been added to your total.*`)
                     .setColor(0x635BFF);
 
                 // Update the button label to show the final price with the fee included
@@ -1203,7 +1320,7 @@ const boostRow = new ActionRowBuilder().addComponents(
 
                 const cryptoEmbed = new EmbedBuilder()
                     .setTitle('<:crypto:1554263320997920799> Crypto Payment Gateway')
-                    .setDescription(`Send exact live amount for **$${productPrice} USD**. Once staff verifies your payment, your order will be delivered manually.`)
+                    .setDescription(`Send exact live amount for **$${productPrice} USD**. Once staff verifies your payment, your order will be delivered manually.${getDecorationDetails(productKey)}`)
                     .setColor(0xF7931A)
                     .addFields(
                         { name: '<:eth:1554263242937860127> ETH', value: `\`\`\`${amounts.eth} ETH\`\`\`\n\`\`\`0x42d01fE1f89C6cDE28ef7a34Ef5A7B452eD6B271\`\`\`` },
@@ -1221,9 +1338,9 @@ const boostRow = new ActionRowBuilder().addComponents(
                 const otherEmbed = new EmbedBuilder()
                     .setTitle('<:dots:1555973916944637952> Other Payment Methods')
                     .setDescription(
-                        `Order for **${productKey.replace(/_/g, ' ').toUpperCase()}**.\nTotal Price: \`$${productPrice} USD\`\n\n` +
+                        `Order for **${formatProductName(productKey)}**.\nTotal Price: \`$${productPrice} USD\`\n\n` +
                         `Please list what you would like to pay with in this ticket (for example: PayPal, Limiteds, or another payment method).\n\n` +
-                        `Staff will discuss the payment details with you and deliver your order manually once payment is confirmed.`
+                        `Staff will discuss the payment details with you and deliver your order manually once payment is confirmed.${getDecorationDetails(productKey)}`
                     )
                     .setColor(0x5865F2);
 

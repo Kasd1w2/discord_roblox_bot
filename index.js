@@ -525,8 +525,9 @@ const boostRow = new ActionRowBuilder().addComponents(
 
         if (commandLabel === 'coupon-store') {
             const storeEmbed = new EmbedBuilder()
-                .setTitle('<:coupon:1554581616112832513> Points & Coupon Store')
-                .setDescription(`Earn points automatically with every purchase you make! You can spend your saved points here on discount coupons for your next purchase.\n\n` +
+                .setDescription(
+                    '# <:coupon:1554581616112832513> Points & Coupon Store\n\n' +
+                    `Earn points automatically with every purchase you make! You can spend your saved points here on discount coupons for your next purchase.\n\n` +
                     `**Point Earnings:**\n` +
                     `• $1 - $100 = 2 Points\n` +
                     `• $101 - $500 = 4 Points\n` +

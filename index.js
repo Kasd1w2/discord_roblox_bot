@@ -18,7 +18,8 @@ const {
     TextInputStyle,
     ChannelType,
     ActivityType,
-    PermissionFlagsBits
+    PermissionFlagsBits,
+    AttachmentBuilder
 } = require('discord.js');
 
 const DECO_PACKAGES = [
@@ -81,6 +82,28 @@ botClient.on('shardError', error => {
 });
 
 // --- HELPER FUNCTIONS ---
+async function listingImage(imageUrl) {
+    let url;
+    try { url = new URL(imageUrl); } catch { throw new OrderError('Use a direct, public image URL for image_url.'); }
+    if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) {
+        throw new OrderError('Use a direct, public HTTP or HTTPS image URL for image_url.');
+    }
+    let response;
+    try {
+        response = await axios.get(url.href, { responseType: 'arraybuffer', timeout: 10000,
+            maxContentLength: 6000000, maxBodyLength: 6000000, maxRedirects: 3 });
+    } catch {
+        throw new OrderError('Could not download that image. Use a fresh, public PNG, JPG, GIF, or WebP link under 6 MB.');
+    }
+    const bytes = Buffer.from(response.data);
+    const extension = bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ? 'png' :
+        bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255 ? 'jpg' :
+        ['GIF87a', 'GIF89a'].includes(bytes.subarray(0, 6).toString('ascii')) ? 'gif' :
+        bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP' ? 'webp' : null;
+    if (!extension || bytes.length > 6000000) throw new OrderError('That link does not return a supported image under 6 MB. Use the image file URL, not a webpage.');
+    return new AttachmentBuilder(bytes, { name: `product-image.${extension}` });
+}
+
 async function sendInteractionError(interaction, content = '<a:error:1554592934828179476> An error occurred while processing your request. Please contact support.') {
     try {
         if (!interaction.isRepliable()) return;
@@ -505,22 +528,21 @@ const boostRow = new ActionRowBuilder().addComponents(
                 const targetForum = await interaction.guild.channels.fetch(selectedChannelOption.id);
 
                 const embedFields = [
-                    { name: '💵 Price', value: `$${productPrice} USD`, inline: true },
-                    { name: '📦 Delivery', value: 'Manual delivery after payment confirmation', inline: true },
+                    { name: '<:price:1554267169800585227> Price', value: `$${productPrice} USD`, inline: true },
+                    { name: '<a:Delivery:1554592662013739109> Delivery', value: 'Manual delivery after payment confirmation', inline: true },
                     { name: '\u200B', value: '\u200B', inline: true }
                 ];
 
-                if (robloxLink) embedFields.push({ name: '🔗 Rolimons Link', value: `[View item](${robloxLink})`, inline: false });
+                if (robloxLink) embedFields.push({ name: '<a:folder:1554593038003609620> Rolimons Link', value: `[View item](${robloxLink})`, inline: false });
 
                 const listingEmbed = new EmbedBuilder()
-                    .setTitle(`🛍️ ${productTitle}`.slice(0, 256))
-                    .setDescription(`Click on the button below to purchase!`)
+                    .setTitle(productTitle.slice(0, 256))
+                    .setDescription('<a:shop1:1554264889491726377> Click on the button below to purchase!')
                     .setColor(0x14B8A6)
                     .addFields(embedFields);
 
-                if (thumbnailPic) {
-                    listingEmbed.setImage(thumbnailPic);
-                }
+                const imageFile = thumbnailPic ? await listingImage(thumbnailPic) : null;
+                if (imageFile) listingEmbed.setImage(`attachment://${imageFile.name}`);
 
                 const buyActionBtn = new ButtonBuilder()
                     .setCustomId(`purchase_action|${productKey}|${productPrice}`)
@@ -530,7 +552,8 @@ const boostRow = new ActionRowBuilder().addComponents(
 
                 await targetForum.threads.create({
                     name: productTitle,
-                    message: { embeds: [listingEmbed], components: [new ActionRowBuilder().addComponents(buyActionBtn)] }
+                    message: { embeds: [listingEmbed], components: [new ActionRowBuilder().addComponents(buyActionBtn)],
+                        ...(imageFile ? { files: [imageFile] } : {}), allowedMentions: { parse: [] } }
                 });
 
                 // 3. Use editReply instead of reply since we deferred

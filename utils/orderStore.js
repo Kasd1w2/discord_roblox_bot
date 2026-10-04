@@ -435,7 +435,7 @@ function createOrderStore({ connection, Ledger, Inventory, cooldownSeconds = 30,
         const result = await orders().updateOne({ orderId, closing: true,
             ...(['cancelled', 'expired'].includes(order.closeFinalStatus) ? { paymentStatus: 'unpaid' } : {}) }, {
             $set: { status: order.closeFinalStatus, active: false, closing: false, closedAt: new Date(), transcript,
-                channelDeleted: false, updatedAt: new Date() }
+                transcriptUpload: null, channelDeleted: false, updatedAt: new Date() }
         });
         if (!result.modifiedCount) throw new OrderError('The order changed during archival; the channel has been kept.');
         return get(orderId);
@@ -459,6 +459,8 @@ function createOrderStore({ connection, Ledger, Inventory, cooldownSeconds = 30,
             { active: true, paymentStatus: 'unpaid', stripeSessionId: { $type: 'string' } },
             { paymentStatus: 'paid', paymentNoticeSent: { $ne: true } },
             { active: false, 'transcript.savedAt': { $exists: true }, receiptNoticeSent: { $ne: true } },
+            { active: false, 'transcript.snapshotId': { $type: 'string' } },
+            { active: false, 'transcript.cleanupPending': true },
             { panelMessageId: { $type: 'string' } },
             { active: true, channelId: null, createdAt: { $lte: new Date(now.getTime() - 600000) } }
         ] }).sort({ updatedAt: 1 }).limit(100).toArray();

@@ -1,4 +1,4 @@
-const { randomBytes } = require('node:crypto');
+const { createHash } = require('node:crypto');
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder,
     ModalBuilder, TextInputBuilder, TextInputStyle, ChannelType, PermissionFlagsBits, AttachmentBuilder } = require('discord.js');
 const { createOrderStore, OrderError, toCents, requireOpen } = require('./orderStore');
@@ -76,6 +76,9 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
     ];
     let recoveryRunning = false;
     let recoveryTimer;
+    const archiveJobs = new Map();
+    const transcriptFileBytes = 6000000;
+    const transcriptBatchSize = 3;
 
     function commandDefinitions(existing) {
         const definitions = existing.map(command => command.toJSON ? command.toJSON() : command);
@@ -318,37 +321,156 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
         return new ActionRowBuilder().addComponents(field);
     }
 
-    async function saveTranscript(order, channel) {
-        const snapshotId = randomBytes(10).toString('hex');
-        let before, part = 0, messageCount = 0;
-        try {
-            if (channel) {
-                while (true) {
-                    const page = await channel.messages.fetch({ limit: 100, ...(before ? { before } : {}) });
-                    if (!page.size) break;
-                    const sorted = [...page.values()].sort((a, b) => BigInt(a.id) < BigInt(b.id) ? -1 : 1);
-                    const messages = sorted.map(message => ({ id: message.id, createdAt: message.createdAt,
-                        authorId: message.author?.id, author: message.author?.tag || message.author?.username || 'Unknown',
-                        content: message.content, embeds: message.embeds.map(embed => embed.toJSON()),
-                        attachments: [...message.attachments.values()].map(file => ({ name: file.name, url: file.url, size: file.size })),
-                        reference: message.reference?.messageId || null }));
-                    await store.parts().insertOne({ orderId: order.orderId, snapshotId, part: part++, messages });
-                    messageCount += messages.length;
-                    before = sorted[0].id;
-                    if (page.size < 100) break;
-                }
-            }
-            return { snapshotId, savedAt: new Date(), messageCount, partCount: part,
-                channelMissing: !channel, receipt: { orderId: order.orderId, product: order.productName, buyerId: order.buyerId,
-                    paidCents: order.paidCents || 0, paymentMethod: order.paymentMethod || 'Unpaid', points: order.pointsEarned || 0,
-                    status: order.closeFinalStatus, reason: order.closeReason, starRating: order.starRating || null } };
-        } catch (error) {
-            await store.parts().deleteMany({ orderId: order.orderId, snapshotId });
-            throw error;
+    async function transcriptChannel(order, channelId) {
+        const channel = await botClient.channels.fetch(channelId || process.env.TRANSCRIPT_CHANNEL_ID || '1542545115564998678');
+        if (!channel?.isTextBased() || typeof channel.send !== 'function' || channel.guildId !== order.guildId || channel.id === order.channelId) {
+            throw new Error('The transcript destination must be a separate text channel in the order server.');
         }
+        return channel;
+    }
+
+    function transcriptInfo(order, channelMissing, savedAt = new Date()) {
+        return { savedAt, channelMissing, receipt: {
+            paidCents: order.paidCents || 0, paymentMethod: order.paymentMethod || 'Unpaid', points: order.pointsEarned || 0,
+            status: order.closeFinalStatus || order.status, reason: order.closeReason || '',
+        } };
+    }
+
+    async function transcriptFiles(order, info, messages) {
+        const receipt = info.receipt;
+        let lines = [`ORDER TRANSCRIPT\nOrder: ${order.orderId}\nProduct: ${order.productName}\nBuyer: ${order.buyerId}\n` +
+            `Payment: ${money(receipt.paidCents)} (${receipt.paymentMethod})\nPoints: ${receipt.points}\nStatus: ${receipt.status}\n` +
+            `Reason: ${receipt.reason}\nSaved: ${new Date(info.savedAt).toISOString()}\n` +
+            (info.channelMissing ? 'Note: the channel was already unavailable when archival ran.\n' : '') + '\n'];
+        let bytes = Buffer.byteLength(lines[0]), messageCount = 0;
+        const buffers = [];
+        for await (const message of messages) {
+            const line = `[${new Date(message.createdAt).toISOString()}] ${message.author} (${message.authorId})\n${message.content || ''}\n` +
+                (message.reference ? `Reply to: ${message.reference}\n` : '') +
+                (message.embeds || []).map(embed => `Embed: ${JSON.stringify(embed)}\n`).join('') +
+                (message.attachments || []).map(file => `Attachment: ${file.name} (${file.size} bytes) ${file.url}\n`).join('') + '\n';
+            const size = Buffer.byteLength(line);
+            if (size > transcriptFileBytes) throw new Error('A transcript message is too large to archive. The ticket has been kept.');
+            if (bytes + size > transcriptFileBytes) { buffers.push(Buffer.from(lines.join(''))); lines = []; bytes = 0; }
+            lines.push(line); bytes += size; messageCount++;
+        }
+        buffers.push(Buffer.from(lines.join('')));
+        return { messageCount, files: buffers.map((buffer, index) => new AttachmentBuilder(buffer, {
+            name: `${order.orderId}-transcript${buffers.length > 1 ? `-${index + 1}` : ''}.txt`
+        })) };
+    }
+
+    async function uploadTranscript(order, info, files, messageCount) {
+        // Persist only upload progress and message IDs. A retry reuses or edits
+        // the already-uploaded batches instead of reposting their contents.
+        let progress = order.transcriptUpload || { savedAt: info.savedAt, batches: [] };
+        const destination = await transcriptChannel(order, progress.channelId);
+        progress = { ...progress, channelId: destination.id, batches: [...progress.batches] };
+        await store.patch(order.orderId, { transcriptUpload: progress });
+        const messageIds = [];
+        for (let offset = 0, index = 0; offset < files.length; offset += transcriptBatchSize, index++) {
+            const batch = files.slice(offset, offset + transcriptBatchSize);
+            const hash = createHash('sha256');
+            for (const file of batch) hash.update(file.name).update(file.attachment);
+            const digest = hash.digest('hex');
+            const previous = progress.batches[index];
+            const hasFiles = message => message.attachments.size === batch.length && batch.every(file =>
+                [...message.attachments.values()].some(attachment => attachment.name === file.name && attachment.size === file.attachment.length));
+            let message;
+            if (previous?.messageId) {
+                try { message = await destination.messages.fetch({ message: previous.messageId, force: true }); }
+                catch (error) { if (error.code !== 10008) throw error; }
+                if (message && message.author?.id !== botClient.user.id) throw new Error('Saved transcript message is not owned by this bot.');
+            }
+            const payload = { embeds: [new EmbedBuilder().setTitle('Ticket Transcript').setColor(orderColor(order))
+                .setDescription(`<a:folder:1554593038003609620> **Order:** ${order.orderId}\n` +
+                    `<a:box:1554592797733163099> **Product:** ${safeText(order.productName)}\n` +
+                    `<a:white_user:1554592911679553577> **Buyer:** <@${order.buyerId}>\n` +
+                    `<a:confirm:1554592986334105620> **Status:** ${safeText(info.receipt.status)}\n**Messages:** ${messageCount}\n` +
+                    `**Files:** ${offset + 1}–${offset + batch.length} of ${files.length}`)],
+                files: batch, allowedMentions: { parse: [] } };
+            if (!message) {
+                const nonce = createHash('sha256').update(`${order.orderId}:${new Date(progress.savedAt).toISOString()}:${index}:${digest}`).digest('hex').slice(0, 24);
+                message = await destination.send({ ...payload, nonce, enforceNonce: true });
+            } else if (previous.digest !== digest || !hasFiles(message)) {
+                message = await message.edit({ ...payload, attachments: [] });
+            }
+            if (!hasFiles(message)) throw new Error('Discord did not return every transcript attachment. The ticket has been kept.');
+            progress.batches[index] = { digest, messageId: message.id };
+            await store.patch(order.orderId, { transcriptUpload: progress });
+            messageIds.push(message.id);
+        }
+        return { storage: 'discord', channelId: destination.id, messageIds, fileCount: files.length,
+            messageCount, savedAt: info.savedAt, channelMissing: Boolean(info.channelMissing), cleanupPending: true };
+    }
+
+    async function saveTranscript(order, channel) {
+        const pages = [];
+        let before;
+        if (channel) {
+            while (true) {
+                const page = await channel.messages.fetch({ limit: 100, ...(before ? { before } : {}) });
+                if (!page.size) break;
+                const sorted = [...page.values()].sort((a, b) => BigInt(a.id) < BigInt(b.id) ? -1 : 1);
+                pages.push(sorted.map(message => ({ id: message.id, createdAt: message.createdAt,
+                    authorId: message.author?.id, author: message.author?.tag || message.author?.username || 'Unknown',
+                    content: message.content, embeds: message.embeds.map(embed => embed.toJSON()),
+                    attachments: [...message.attachments.values()].map(file => ({ name: file.name, url: file.url, size: file.size })),
+                    reference: message.reference?.messageId || null })));
+                before = sorted[0].id;
+                if (page.size < 100) break;
+            }
+        }
+        const info = transcriptInfo(order, !channel, order.transcriptUpload?.savedAt || new Date());
+        const { files, messageCount } = await transcriptFiles(order, info, pages.reverse().flat());
+        return uploadTranscript(order, info, files, messageCount);
+    }
+
+    async function clearTranscriptParts(order) {
+        if (!order.transcript?.cleanupPending) return order;
+        // The Discord references are durable before any old Mongo content is removed.
+        await store.parts().deleteMany({ orderId: order.orderId });
+        return store.patch(order.orderId, { 'transcript.cleanupPending': false, transcriptUpload: null });
+    }
+
+    async function migrateTranscriptUnlocked(order) {
+        if (order.transcript?.storage === 'discord') return clearTranscriptParts(order);
+        const info = order.transcript;
+        if (!info?.snapshotId) throw new Error('No saved Mongo transcript is available to migrate.');
+        let partCount = 0;
+        async function* messages() {
+            for await (const part of store.parts().find({ orderId: order.orderId, snapshotId: info.snapshotId }).sort({ part: -1 })) {
+                if (part.part !== info.partCount - 1 - partCount) throw new Error('Saved transcript parts are incomplete; Mongo content has been kept.');
+                partCount++;
+                yield* part.messages;
+            }
+        }
+        const { files, messageCount } = await transcriptFiles(order, info, messages());
+        if (partCount !== info.partCount || messageCount !== info.messageCount) throw new Error('Saved transcript parts are incomplete; Mongo content has been kept.');
+        const transcript = await uploadTranscript(order, info, files, messageCount);
+        order = await store.patch(order.orderId, { transcript, transcriptUpload: null });
+        return clearTranscriptParts(order);
+    }
+
+    async function archiveJob(orderId, work) {
+        if (archiveJobs.has(orderId)) {
+            await archiveJobs.get(orderId);
+            return archiveJob(orderId, work);
+        }
+        const job = Promise.resolve().then(async () => work(await store.get(orderId)));
+        archiveJobs.set(orderId, job);
+        try { return await job; } finally { archiveJobs.delete(orderId); }
+    }
+
+    async function migrateTranscript(order) {
+        return archiveJob(order.orderId, migrateTranscriptUnlocked);
     }
 
     async function archiveAndDelete(order) {
+        return archiveJob(order.orderId, archiveAndDeleteUnlocked);
+    }
+
+    async function archiveAndDeleteUnlocked(order) {
         const channel = await fetchChannel(order);
         if (order.active) {
             if (!order.closing) throw new OrderError('Closure has not been requested.');
@@ -359,13 +481,16 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             const transcript = await saveTranscript(order, channel);
             order = await store.finalizeClose(order.orderId, transcript);
         }
-        if (!order.transcript) throw new Error(`Refusing to delete ${order.orderId} without a saved transcript.`);
+        if (order.transcript?.storage !== 'discord') order = await migrateTranscriptUnlocked(order);
+        if (!order.transcript?.messageIds?.length) throw new Error(`Refusing to delete ${order.orderId} without a Discord transcript.`);
+        order = await clearTranscriptParts(order);
         if (channel) {
             try { await channel.delete(`Order ${order.orderId}: transcript saved`); }
             catch (error) { if (error.code !== 10003) throw error; }
         }
         order = await store.patch(order.orderId, { channelDeleted: true });
         await publishCompletedReceipt(order);
+        return store.get(order.orderId);
     }
 
     async function liveDeliveriesChannel(order) {
@@ -440,28 +565,23 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
 
     async function downloadTranscript(interaction, order) {
         if (!order.transcript) throw new OrderError('This order has not been archived yet. Its transcript is saved when staff closes it.');
-        const receipt = order.transcript.receipt;
-        let text = `ORDER TRANSCRIPT\nOrder: ${order.orderId}\nProduct: ${order.productName}\nBuyer: ${order.buyerId}\n` +
-            `Payment: ${money(receipt.paidCents)} (${receipt.paymentMethod})\nPoints: ${receipt.points}\nStatus: ${receipt.status}\n` +
-            `Reason: ${receipt.reason}\nSaved: ${order.transcript.savedAt.toISOString()}\n` +
-            (order.transcript.channelMissing ? 'Note: the channel was already unavailable when archival ran.\n' : '') + '\n';
-        const buffers = [];
-        for await (const part of store.parts().find({ orderId: order.orderId, snapshotId: order.transcript.snapshotId }).sort({ part: -1 })) {
-            for (const message of part.messages) {
-                const line = `[${new Date(message.createdAt).toISOString()}] ${message.author} (${message.authorId})\n${message.content || ''}\n` +
-                    (message.reference ? `Reply to: ${message.reference}\n` : '') +
-                    message.embeds.map(embed => `Embed: ${JSON.stringify(embed)}\n`).join('') +
-                    message.attachments.map(file => `Attachment: ${file.name} (${file.size} bytes) ${file.url}\n`).join('') + '\n';
-                if (Buffer.byteLength(text + line) > 6000000) { buffers.push(Buffer.from(text)); text = ''; }
-                text += line;
+        if (order.transcript.storage !== 'discord') order = await migrateTranscript(order);
+        const destination = await transcriptChannel(order, order.transcript.channelId);
+        const files = [];
+        for (const messageId of order.transcript.messageIds) {
+            // Fetch fresh messages so downloads use current Discord attachment URLs.
+            const message = await destination.messages.fetch({ message: messageId, force: true });
+            if (message.author?.id !== botClient.user.id) throw new OrderError('This archived transcript is unavailable. Contact staff.');
+            for (const file of message.attachments.values()) {
+                if (!file.name.startsWith(`${order.orderId}-transcript`) || !file.name.endsWith('.txt')) throw new OrderError('The archived transcript files do not match this order.');
+                files.push(new AttachmentBuilder(file.url, { name: file.name }));
             }
         }
-        buffers.push(Buffer.from(text));
-        const files = buffers.map((buffer, index) => new AttachmentBuilder(buffer, {
-            name: `${order.orderId}-transcript${buffers.length > 1 ? `-${index + 1}` : ''}.txt`
-        }));
-        await interaction.editReply({ content: `Saved transcript for **${order.orderId}** (${order.transcript.messageCount} messages).`, files: files.slice(0, 10) });
-        for (let offset = 10; offset < files.length; offset += 10) await interaction.followUp({ files: files.slice(offset, offset + 10), flags: 64 });
+        if (files.length !== order.transcript.fileCount) throw new OrderError('Some archived transcript files are missing. Contact staff.');
+        await interaction.editReply({ content: `Saved transcript for **${order.orderId}** (${order.transcript.messageCount} messages).`, files: files.slice(0, transcriptBatchSize) });
+        for (let offset = transcriptBatchSize; offset < files.length; offset += transcriptBatchSize) {
+            await interaction.followUp({ files: files.slice(offset, offset + transcriptBatchSize), flags: 64 });
+        }
     }
 
     async function handleInteraction(interaction) {
@@ -787,6 +907,8 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
                         await retireStaffPanel(order);
                         order = await store.get(order.orderId);
                     }
+                    if (!order.active && order.transcript &&
+                        (order.transcript.storage !== 'discord' || order.transcript.cleanupPending)) order = await migrateTranscript(order);
                     if (!order.channelId && order.createdAt < new Date(Date.now() - 600000)) { await store.abandonCreation(order.orderId); continue; }
                     if (order.closing || !order.active && (!order.channelDeleted || order.transcript && !order.receiptNoticeSent)) { await archiveAndDelete(order); continue; }
                     const oldSessionId = order.stripeSessionId;
@@ -795,6 +917,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
                         await renderCheckout(order); await retireStaffPanel(order);
                     }
                     if (order.paymentStatus === 'paid') { if (!order.paymentNoticeSent) await notifyPaid({ order }); continue; }
+                    if (!order.active) continue;
                     if (order.expiresAt <= new Date()) {
                         await closeTicket(order, 'system', false, 'Unpaid ticket expired', true);
                     } else if (order.coupon?.expiresAt <= new Date()) {
@@ -840,7 +963,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
     }
 
     return { initialize: store.initialize, commandDefinitions, handleInteraction, handleStripeEvent, handleReaction, startRecovery,
-        store, saveTranscript, archiveAndDelete, reconcileCheckout, closeTicket };
+        store, saveTranscript, archiveAndDelete, migrateTranscript, recover, reconcileCheckout, closeTicket };
 }
 
 module.exports = { createOrderRuntime, isStaff, assertAuthorized, money, completedReceipt, COMMANDS };

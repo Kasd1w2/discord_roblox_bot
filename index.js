@@ -36,79 +36,6 @@ const DECO_PACKAGES = [
     { shopPrice: '32.97', price: '9.90' }
 ];
 
-// Category mapping helper
-const TIERS = {
-    'high_tier': {
-        label: '🔥 High Tier',
-        subcategories: [
-            { label: '2 Letters', value: '2l' },
-            { label: '3 Digits', value: '3d' },
-            { label: 'Real Words', value: 'real_words' }
-        ]
-    },
-    'mid_tier': {
-        label: '⚡ Mid Tier',
-        subcategories: [
-            { label: '3 Letters', value: '3l' },
-            { label: '4 Digits', value: '4d' },
-            { label: 'Clean Compounds', value: 'clean_compounds' }
-        ]
-    },
-    'low_tier': {
-        label: '🌱 Low Tier',
-        subcategories: [
-            { label: 'Triple Numbers', value: 'triple' },
-            { label: '4 Letters', value: '4l' },
-            { label: 'Edgy Compounds', value: 'edgy' },
-            { label: 'Finance Compounds', value: 'finance' },
-            { label: 'Leetspeak', value: 'leetspeak' },
-            { label: 'Other', value: 'other' }
-        ]
-    }
-};
-
-const CATEGORY_NAMES = {
-    '2l': '2 Letters',
-    '3d': '3 Digits',
-    'real_words': 'Real Words',
-    '3l': '3 Letters',
-    '4d': '4 Digits',
-    'clean_compounds': 'Clean Compounds',
-    'triple': 'Triple Numbers',
-    '4l': '4 Letters',
-    'edgy': 'Edgy Compounds',
-    'finance': 'Finance Compounds',
-    'leetspeak': 'Leetspeak',
-    'other': 'Other'
-};
-// Account line parser (omits passwords from displays)
-function parseAccountEntry(codeString) {
-    let raw = codeString.trim();
-    let username = raw;
-    let price = '';
-
-    if (raw.includes(':')) {
-        const parts = raw.split(':');
-        username = parts[0].trim().replace(/^@/, '');
-        if (parts[2]) {
-            let rawPrice = parts[2].trim();
-            price = rawPrice.startsWith('$') ? rawPrice : `$${rawPrice}`;
-        }
-    } else if (raw.includes('-')) {
-        const parts = raw.split('-');
-        username = parts[0].trim().replace(/^@/, '');
-        price = parts[1].trim();
-        if (price && !price.startsWith('$')) price = `$${price}`;
-    } else {
-        username = raw.replace(/^@/, '');
-    }
-
-    let displayLabel = `@${username}`;
-    if (price) displayLabel += ` - ${price}`;
-
-    return { username, displayLabel };
-}
-
 // Modular Imports
 const Inventory = require('./models/Inventory');
 const Ledger = require('./models/Ledger');
@@ -116,6 +43,8 @@ const appCommands = require('./commands/commandDefinitions');
 const { createOrderRuntime } = require('./utils/orderRuntime');
 const { OrderError } = require('./utils/orderStore');
 const { publicMessage } = require('./utils/messageStyle');
+const { CATEGORY_NAMES, normalizeAccountCategory } = require('./utils/accounts');
+const { createAccountCatalog } = require('./utils/accountCatalog');
 
 const ADMIN_ROLE_ID = '1542306776622309437';
 
@@ -236,8 +165,10 @@ function getDecorationDetails(productKey) {
 const orderRuntime = createOrderRuntime({
     mongoose, botClient, stripe, Inventory, Ledger, adminRoleId: ADMIN_ROLE_ID,
     decoPackages: DECO_PACKAGES, formatProductName, getCryptoAmounts,
-    categoryNames: CATEGORY_NAMES, parseAccountEntry
+    categoryNames: CATEGORY_NAMES
 });
+
+const accountCatalog = createAccountCatalog({ Inventory, store: orderRuntime.store });
 
 // --- STRIPE WEBHOOK ENDPOINT ---
 webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
@@ -335,6 +266,7 @@ botClient.on('messageReactionAdd', async (reaction, user) => {
 // --- MAIN INTERACTION ROUTER ---
 async function handleInteraction(interaction) {
     if (await orderRuntime.handleInteraction(interaction)) return;
+    if (await accountCatalog.handleInteraction(interaction)) return;
 
     // 1. CHAT INPUT COMMANDS
     if (interaction.isChatInputCommand()) {
@@ -555,39 +487,10 @@ const boostRow = new ActionRowBuilder().addComponents(
             const customTitle = interaction.options.getString('title') || 'Stocked User Stock';
 
             if (storeType === 'account') {
-                updateBotStatus(`🏷️ Deploying User Catalog`);
-
-                const catalogEmbed = new EmbedBuilder()
-                    .setTitle(customTitle)
-                    .setDescription(
-                        `We DO NOT proxy the same accs seen in the Com. A large majority of accs are directly from the original owners. Largely obtained through private methods which only we know.\n\n` +
-                        `🛡️ Every acc is new to com, unverified, and sniped by us (unless stated otherwise). All accs are guaranteed to be safe.\n` +
-                        `All acc details can be provided upon enquiry.\n\n` +
-                        `↕️ Users are sorted by price in USD, select your budget within the dropdown to see users. All BINs are negotiable.\n\n` +
-                        `Payment Methods accepted: 🪙 Crypto, ✨ Clean Limiteds\n\n` +
-                        `For an extra +% we can also take: 🅿️ Paypal, 💲 CashApp, 🍎 Apple Pay, ♈ Venmo, 💤 Zelle, 🏦 Bank Transfer and 🍁 Interac.\n\n` +
-                        `<a:shop1:1554264889491726377> Select an option below to purchase then make a ticket.`
-                    )
-                    .setColor(0x2B2D31);
-
-                const tierMenu = new StringSelectMenuBuilder()
-                    .setCustomId(`tier_select|${encodeURIComponent(customTitle)}`)
-                    .setPlaceholder('Select a tier...')
-                    .addOptions([
-                        { label: '🔥 High Tier', value: 'high_tier', description: '2 Letters, 3 Digits, Real Words' },
-                        { label: '⚡ Mid Tier', value: 'mid_tier', description: '3 Letters, 4 Digits, Clean Compounds' },
-                        { label: '🌱 Low Tier', value: 'low_tier', description: 'Triples, 4L, Edgy, Finance, Leetspeak, Other' }
-                    ]);
-
+                updateBotStatus('👤 Deploying Account Catalog');
                 const targetChannel = await interaction.guild.channels.fetch(selectedChannelOption.id);
-                await targetChannel.send({
-                    embeds: [catalogEmbed],
-                    components: [new ActionRowBuilder().addComponents(tierMenu)]
-                });
-
-                // 2. Use editReply instead of reply since we deferred
-                await interaction.editReply({ content: '✅ Tier catalog deployed successfully!' });
-
+                await targetChannel.send(accountCatalog.publicCatalog(customTitle));
+                await interaction.editReply({ content: '✅ Account catalog deployed. Buyers can browse all usernames and prices.' });
             } else {
                 const productTitle = interaction.options.getString('title');
                 const productPrice = interaction.options.getNumber('price');
@@ -667,34 +570,25 @@ const boostRow = new ActionRowBuilder().addComponents(
         }
 
         if (commandLabel === 'restock') {
-            const itemId = interaction.options.getString('item_id');
+            await interaction.deferReply({ flags: 64 });
+            const inputId = interaction.options.getString('item_id').trim();
+            const accountCategory = normalizeAccountCategory(inputId);
+            const itemId = accountCategory || inputId;
             updateBotStatus(`📥 Restocking items for: ${itemId.toUpperCase()}`);
-
             const rawInput = interaction.options.getString('codes');
-
-            const newCodes = rawInput
-                .split(/[\r\n,]+|\s+/)
-                .map(c => c.trim())
-                .filter(c => c.length > 0);
-
-            if (newCodes.length === 0) {
-                return interaction.reply({ content: '❌ No valid entries detected in input.', flags: 64 });
+            if (accountCategory) {
+                const result = await orderRuntime.store.restockAccounts(itemId, rawInput);
+                await interaction.editReply({ content: `✅ Added **${result.added} account(s)** to **${CATEGORY_NAMES[itemId]}**.\n📦 Total Stock: **${result.total}**` });
+                return;
             }
-
+            const newCodes = rawInput.split(/[\r\n,]+|\s+/).map(code => code.trim()).filter(Boolean);
+            if (!newCodes.length) return interaction.editReply({ content: '❌ No valid entries detected in input.' });
             let itemRecord = await Inventory.findOne({ itemId });
-            if (!itemRecord) {
-                itemRecord = new Inventory({ itemId, codes: [] });
-            }
-
+            if (!itemRecord) itemRecord = new Inventory({ itemId, codes: [] });
             itemRecord.codes.push(...newCodes);
             await itemRecord.save();
-
-            await interaction.reply({
-                content: `✅ Successfully added **${newCodes.length}** account(s)/code(s) to \`${itemId}\`.\n📦 Total Stock: **${itemRecord.codes.length}**`,
-                flags: 64
-            });
+            await interaction.editReply({ content: `✅ Added **${newCodes.length} code(s)** to \`${itemId}\`.\n📦 Total Stock: **${itemRecord.codes.length}**` });
         }
-
         if (commandLabel === 'stock') {
             updateBotStatus(`📊 Checking inventory stock`);
             const allInventory = await Inventory.find({});
@@ -713,8 +607,16 @@ const boostRow = new ActionRowBuilder().addComponents(
         }
 
         if (commandLabel === 'remove-stock') {
-            const itemId = interaction.options.getString('item_id');
+            const inputId = interaction.options.getString('item_id').trim();
+            const accountCategory = normalizeAccountCategory(inputId);
+            const itemId = accountCategory || inputId;
             updateBotStatus(`🗑️ Removing stock for: ${itemId.toUpperCase()}`);
+            if (accountCategory) {
+                await interaction.deferReply({ flags: 64 });
+                const result = await orderRuntime.store.removeAccounts(itemId, interaction.options.getString('codes'));
+                await interaction.editReply({ content: `🗑️ Removed **${result.removed} account(s)** from **${CATEGORY_NAMES[itemId]}**. Remaining: **${result.total}**` });
+                return;
+            }
             const codesToRemove = interaction.options.getString('codes').split(',').map(c => c.trim());
 
             let itemRecord = await Inventory.findOne({ itemId });
@@ -747,110 +649,7 @@ const boostRow = new ActionRowBuilder().addComponents(
             await interaction.editReply({ content: `🎉 **Redeemed!** Spent **${cost} points** for a **${discountPct}% Off Coupon**.` });
         }
 
-        // A. Tier Selection (Resets public dropdown & sends ephemeral subcategory menu)
-        if (customId.startsWith('tier_select')) {
-            try {
-                const [, encodedTitle] = customId.split('|');
-                const selectedTierKey = interaction.values[0];
-                const tierData = TIERS[selectedTierKey];
 
-                if (!tierData) {
-                    return interaction.reply({ content: '❌ Selected tier data not found.', flags: 64 });
-                }
-
-                // Reset public menu instantly
-                const freshTierMenu = new StringSelectMenuBuilder()
-                    .setCustomId(customId)
-                    .setPlaceholder('Select a tier...')
-                    .addOptions([
-                        { label: '🔥 High Tier', value: 'high_tier', description: '2 Letters, 3 Digits, Real Words' },
-                        { label: '⚡ Mid Tier', value: 'mid_tier', description: '3 Letters, 4 Digits, Clean Compounds' },
-                        { label: '🌱 Low Tier', value: 'low_tier', description: 'Triples, 4L, Edgy, Finance, Leetspeak, Other' }
-                    ]);
-
-                await interaction.update({
-                    components: [new ActionRowBuilder().addComponents(freshTierMenu)]
-                });
-
-                // Send ephemeral subcategory dropdown
-                const subcatMenu = new StringSelectMenuBuilder()
-                    .setCustomId(`subcat_select|${encodedTitle}`)
-                    .setPlaceholder(`Select a subcategory...`)
-                    .addOptions(tierData.subcategories);
-
-                const subcatEmbed = new EmbedBuilder()
-                    .setTitle(`${tierData.label}`)
-                    .setDescription('Select a subcategory below to view available stock:')
-                    .setColor(0x5865F2);
-
-                await interaction.followUp({
-                    embeds: [subcatEmbed],
-                    components: [new ActionRowBuilder().addComponents(subcatMenu)],
-                    flags: 64
-                });
-            } catch (err) {
-                console.error('Error handling tier_select:', err);
-                await sendInteractionError(interaction, '❌ An error occurred processing your selection.');
-            }
-        }
-        // B. Subcategory Selection (Fetches stock & user purchase dropdown)
-        if (customId.startsWith('subcat_select')) {
-            await interaction.deferReply({ flags: 64 });
-
-            const [, encodedTitle] = customId.split('|');
-            const storeTitle = encodedTitle ? decodeURIComponent(encodedTitle) : 'Stocked User Stock';
-            const selectedSubcat = interaction.values[0];
-            const categoryName = CATEGORY_NAMES[selectedSubcat] || selectedSubcat.toUpperCase();
-
-            const itemRecord = await Inventory.findOne({ itemId: selectedSubcat });
-            if (!itemRecord || itemRecord.codes.length === 0) {
-                return interaction.editReply({ content: `❌ No accounts are currently in stock for **${categoryName}**.` });
-            }
-
-            const parsedStock = itemRecord.codes.map(parseAccountEntry);
-            const formattedStockList = parsedStock.map(i => i.displayLabel).join('\n');
-
-            const stockEmbed = new EmbedBuilder()
-                .setTitle(`${storeTitle} - ${categoryName}`)
-                .setDescription(
-                    `<a:Termss:1554267208882978896> Before purchase please read our Terms and Conditions in <#1555338590064746576>.\n` +
-                    `<:white_user:1554592911679553577> All listed accounts are unverified with no claimed billing unless stated otherwise.\n\n` +
-                    `\`\`\`\n${formattedStockList}\n\`\`\``
-                )
-                .setColor(0x2B2D31);
-
-            const stockOptions = parsedStock.slice(0, 25).map(item => ({
-                label: item.displayLabel.substring(0, 100),
-                value: item.username.substring(0, 100)
-            }));
-
-            const stockMenu = new StringSelectMenuBuilder()
-                .setCustomId(`select_stock_user|${selectedSubcat}`)
-                .setPlaceholder('Select a user in stock to purchase...')
-                .addOptions(stockOptions);
-
-            await interaction.editReply({
-                embeds: [stockEmbed],
-                components: [new ActionRowBuilder().addComponents(stockMenu)]
-            });
-        }
-        if (customId === 'user_tier_select') {
-            const tier = interaction.values[0];
-            const subCategories = tier === 'high_tier'
-                ? [{ label: 'Rare Words', value: 'cat_rare_words' }]
-                : tier === 'mid_tier'
-                    ? [{ label: '4 Letters', value: 'cat_4_letters' }]
-                    : [{ label: '5 Digits', value: 'cat_5_digits' }];
-
-            const subMenu = new StringSelectMenuBuilder().setCustomId(`user_subcat_select|${tier}`).setPlaceholder('Select subcategory...').addOptions(subCategories);
-            await interaction.reply({ embeds: [new EmbedBuilder().setTitle('📂 Select Category').setColor(0x5865F2)], components: [new ActionRowBuilder().addComponents(subMenu)], flags: 64 });
-        }
-
-        if (customId.startsWith('user_subcat_select|')) {
-            const subCat = interaction.values[0];
-            const ticketBtn = new ButtonBuilder().setCustomId(`create_user_ticket|${subCat}`).setLabel('Create Ticket').setStyle(ButtonStyle.Success);
-            await interaction.update({ embeds: [new EmbedBuilder().setTitle(`📜 ${subCat.toUpperCase()}`).setColor(0x2B2D31)], components: [new ActionRowBuilder().addComponents(ticketBtn)] });
-        }
     }
 
 }
@@ -898,3 +697,4 @@ setInterval(async () => {
     console.error("Self-ping failed:", error.message);
   }
 }, 10 * 60 * 1000); // <-- Ensure this comma exists!
+g

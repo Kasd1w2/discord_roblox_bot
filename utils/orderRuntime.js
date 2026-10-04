@@ -3,10 +3,13 @@ const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelect
     ModalBuilder, TextInputBuilder, TextInputStyle, ChannelType, PermissionFlagsBits, AttachmentBuilder } = require('discord.js');
 const { createOrderStore, OrderError, toCents, requireOpen } = require('./orderStore');
 const { publicMessage } = require('./messageStyle');
+const { accountListings, parseAccountEntry, normalizeAccountCategory } = require('./accounts');
+const { shopTerms } = require('./shopTerms');
 
 const money = cents => cents == null ? 'Awaiting quote' : `$${(cents / 100).toFixed(2)} USD`;
 const safeText = value => String(value ?? '').replace(/[`*_~|<>]/g, '').slice(0, 180);
 const COMMANDS = [
+    { name: 'terms', description: 'Staff: post the shop terms and warranty policy in this channel', type: 1 },
     { name: 'my-orders', description: 'View your saved orders and their progress', type: 1 },
     { name: 'order', description: 'Staff: privately view an order summary', type: 1,
         options: [{ name: 'order_id', description: 'Order ID (defaults to the current ticket)', type: 3, required: false }] },
@@ -57,7 +60,7 @@ function assertAuthorized(interaction, order, roleId, staffOnly = false, buyerOn
 }
 
 function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, adminRoleId,
-    decoPackages, formatProductName, getCryptoAmounts, categoryNames, parseAccountEntry }) {
+    decoPackages, formatProductName, getCryptoAmounts, categoryNames }) {
     const positiveSetting = (name, fallback) => {
         const value = Number(process.env[name]);
         return Number.isFinite(value) && value > 0 ? value : fallback;
@@ -460,9 +463,9 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
     async function handleInteraction(interaction) {
         const cmd = interaction.isChatInputCommand() ? interaction.commandName : null;
         const id = interaction.customId || '';
-        const supportedCommands = ['my-orders', 'order', 'transcript', 'rate-order', 'confirm-payment', 'deliver', 'close'];
-        const prefixes = ['purchase_action|', 'use_coupon_yes|', 'use_coupon_no|', 'open_tx_modal|', 'create_user_ticket|',
-            'select_stock_user|', 'apply_coupon|', 'payment_select|', 'submit_tx_form|', 'staff_order|', 'buyer_order|',
+        const supportedCommands = ['terms', 'my-orders', 'order', 'transcript', 'rate-order', 'confirm-payment', 'deliver', 'close'];
+        const prefixes = ['purchase_action|', 'use_coupon_yes|', 'use_coupon_no|', 'open_tx_modal|',
+            'account_pick|', 'select_stock_user|', 'apply_coupon|', 'payment_select|', 'submit_tx_form|', 'staff_order|', 'buyer_order|',
             'staff_pay|', 'order_issue|', 'orders_page|', 'expire_checkout|', 'select_boost_package|', 'select_deco_package|'];
         if (!supportedCommands.includes(cmd) && !prefixes.some(prefix => id.startsWith(prefix)) &&
             !['close_order', 'buy_boost_ticket', 'buy_deco_ticket', 'select_boost_package', 'select_deco_package'].includes(id)) return false;
@@ -470,7 +473,12 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
 
         if (cmd) {
             await interaction.deferReply({ flags: 64 });
-            if (cmd === 'my-orders') await history(interaction);
+            if (cmd === 'terms') {
+                if (!isStaff(interaction, adminRoleId)) throw new OrderError('Only shop staff can post the terms.');
+                await interaction.channel.send({ embeds: [shopTerms()], allowedMentions: { parse: [] } });
+                await interaction.editReply({ content: '✅ Shop terms posted. All products have a 7-day warranty except boosts.' });
+            }
+            else if (cmd === 'my-orders') await history(interaction);
             else if (cmd === 'rate-order') {
                 const value = interaction.options.getString('order_id');
                 const order = await orderFor(interaction, value?.toUpperCase(), { buyerOnly: true, anyChannel: Boolean(value) });
@@ -512,11 +520,12 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
                     await notifyPaid(result);
                 }
                 const delivery = await store.deliverStock(order.orderId, interaction.user.id, itemId, interaction.options.getString('specific_account'));
-                // Keep the existing channel delivery format. The complete original
-                // entry remains available privately through /my-codes.
+                const account = order.kind === 'account' ? parseAccountEntry(delivery.code) : null;
                 const displayed = delivery.code.replace(/:.*$/, '');
-                await interaction.channel.send(publicMessage(`Hey <@${order.buyerId}>!\nOrder **${order.orderId}**\n\n` +
-                    `Code for **${safeText(itemId)}**:\n\`\`\`${displayed.replace(/`/g, '')}\`\`\``,
+                const details = account ? `👤 **Username:** \`@${account.username}\`\n💵 **Price:** \`$${(account.priceCents / 100).toFixed(2)}\`\n\n` +
+                    '🔐 Your login details are available privately with `/my-codes`.' :
+                    `Code for **${safeText(itemId)}**:\n\`\`\`${displayed.replace(/`/g, '')}\`\`\``;
+                await interaction.channel.send(publicMessage(`Hey <@${order.buyerId}>!\nOrder **${order.orderId}**\n\n${details}`,
                     { title: '📦 Order Delivery', color: 0x57F287, users: [order.buyerId] }));
                 await retireStaffPanel(delivery.order);
                 await interaction.editReply({ content: '✅ Delivery recorded. Points were awarded once at payment confirmation.' });
@@ -560,22 +569,19 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             await createTicket(interaction, { kind: 'item', productKey, productName: formatProductName(productKey), baseCents: toCents(price) });
             return true;
         }
-        if (interaction.isStringSelectMenu() && id.startsWith('select_stock_user|')) {
+        if (interaction.isStringSelectMenu() && (id.startsWith('account_pick|') || id.startsWith('select_stock_user|'))) {
             await interaction.deferReply({ flags: 64 });
-            const category = id.split('|')[1];
+            const current = id.startsWith('account_pick|');
+            const segments = id.split('|');
+            if (current && segments[1] !== interaction.user.id) throw new OrderError('Open your own account browser from the shop menu.');
+            const category = normalizeAccountCategory(segments[current ? 2 : 1]);
+            if (!category) throw new OrderError('Choose a valid account category.');
             const username = interaction.values[0];
             const item = await Inventory.findOne({ itemId: category });
-            const entry = item?.codes.find(code => parseAccountEntry(code).username === username);
+            const entry = accountListings(item?.codes || []).find(account => account.username.toLowerCase() === username?.toLowerCase());
             if (!entry) throw new OrderError('That account is no longer in stock. Refresh the catalog.');
-            const displayedPrice = parseAccountEntry(entry).displayLabel.match(/\$([0-9]+(?:\.[0-9]{1,2})?)$/);
-            await createTicket(interaction, { kind: 'account', productKey: category, selectedAccount: username,
-                productName: `${categoryNames[category] || category}: @${username}`, baseCents: displayedPrice ? toCents(displayedPrice[1]) : null });
-            return true;
-        }
-        if (interaction.isButton() && id.startsWith('create_user_ticket|')) {
-            await interaction.deferReply({ flags: 64 });
-            const category = id.split('|')[1];
-            await createTicket(interaction, { kind: 'account', productKey: category, productName: categoryNames[category] || category, baseCents: null });
+            await createTicket(interaction, { kind: 'account', productKey: category, selectedAccount: entry.username,
+                productName: `${categoryNames[category] || category}: @${entry.username}`, baseCents: entry.priceCents });
             return true;
         }
         if (interaction.isButton() && id.startsWith('orders_page|')) {

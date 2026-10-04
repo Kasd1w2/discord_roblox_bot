@@ -1,4 +1,5 @@
 const { randomBytes } = require('node:crypto');
+const { normalizeAccountCategory, parseAccountEntry, parseAccountRestock } = require('./accounts');
 
 class OrderError extends Error {
     constructor(message, existingOrder = null) {
@@ -106,6 +107,15 @@ function createOrderStore({ connection, Ledger, Inventory, cooldownSeconds = 30,
         try {
             return await transaction(async session => {
                 const now = new Date();
+                if (input.kind === 'account' && input.selectedAccount) {
+                    await settings().updateOne({ _id: `account-stock:${input.productKey}` }, { $inc: { version: 1 } }, { upsert: true, session });
+                    const reserved = await orders().findOne({ productSlot, active: true }, { session });
+                    if (reserved) throw new OrderError('This account already has an open order. Choose another account or ask staff for help.',
+                        reserved.buyerId === input.buyerId && reserved.guildId === input.guildId ? reserved : null);
+                    const item = await inventory().findOne({ itemId: input.productKey }, { session });
+                    const account = (item?.codes || []).map(parseAccountEntry).find(entry => entry?.username.toLowerCase() === input.selectedAccount.toLowerCase());
+                    if (!account || account.priceCents !== input.baseCents) throw new OrderError('This account is no longer available at that price. Refresh the catalog.');
+                }
                 const gateId = `${input.guildId}:${input.buyerId}`;
                 const gate = await gates().findOne({ _id: gateId }, { session });
                 if (gate && gate.nextAllowedAt > now) {
@@ -321,6 +331,55 @@ function createOrderStore({ connection, Ledger, Inventory, cooldownSeconds = 30,
         return get(orderId);
     }
 
+    async function restockAccounts(category, rawInput) {
+        const itemId = normalizeAccountCategory(category);
+        if (!itemId) throw new OrderError('Choose a valid account category.');
+        let accounts;
+        try { accounts = parseAccountRestock(rawInput); }
+        catch (error) { throw new OrderError(error.message); }
+        return transaction(async session => {
+            await settings().updateOne({ _id: `account-stock:${itemId}` }, { $inc: { version: 1 } }, { upsert: true, session });
+            const item = await inventory().findOne({ itemId }, { session });
+            const existing = new Set((item?.codes || []).map(parseAccountEntry).filter(Boolean).map(entry => entry.username.toLowerCase()));
+            for (const account of accounts) if (existing.has(account.username.toLowerCase())) {
+                throw new OrderError(`@${account.username} is already stocked in ${itemId}. Remove its old entry before replacing it.`);
+            }
+            const codes = [...(item?.codes || []), ...accounts.map(account => account.code)];
+            await inventory().updateOne({ itemId }, { $set: { codes } }, { upsert: true, session });
+            return { added: accounts.length, total: codes.length };
+        });
+    }
+
+    async function reservedAccounts(category) {
+        const ordersInStock = await orders().find({ productKey: category, kind: 'account', active: true, fulfillmentStatus: 'pending' }).toArray();
+        return new Set(ordersInStock.map(order => order.selectedAccount?.toLowerCase()).filter(Boolean));
+    }
+
+    async function removeAccounts(category, input) {
+        const itemId = normalizeAccountCategory(category);
+        if (!itemId) throw new OrderError('Choose a valid account category.');
+        const names = [];
+        for (const line of String(input || '').split(/\r?\n/).filter(line => line.trim())) {
+            if (line.includes(':')) {
+                const account = parseAccountEntry(line);
+                if (!account) throw new OrderError('Remove accounts by username, or provide one complete username:password:price entry per line.');
+                names.push(account.username);
+            } else names.push(...line.split(',').map(name => name.trim().replace(/^@/, '')));
+        }
+        if (!names.length || names.some(name => !/^[A-Za-z0-9_]{1,32}$/.test(name))) throw new OrderError('Provide the usernames to remove, separated by commas or new lines.');
+        const wanted = new Set(names.map(name => name.toLowerCase()));
+        return transaction(async session => {
+            await settings().updateOne({ _id: `account-stock:${itemId}` }, { $inc: { version: 1 } }, { upsert: true, session });
+            const pending = await orders().find({ productKey: itemId, kind: 'account', active: true, fulfillmentStatus: 'pending' }, { session }).toArray();
+            if (pending.some(order => wanted.has(order.selectedAccount?.toLowerCase()))) throw new OrderError('An account you selected has an open order. Resolve that ticket before removing its stock.');
+            const item = await inventory().findOne({ itemId }, { session });
+            if (!item) throw new OrderError('This account category has no stock record.');
+            const codes = item.codes.filter(code => !wanted.has(code.split(':')[0].trim().replace(/^@/, '').toLowerCase()));
+            await inventory().updateOne({ _id: item._id }, { $set: { codes } }, { session });
+            return { removed: item.codes.length - codes.length, total: codes.length };
+        });
+    }
+
     async function deliverStock(orderId, actorId, itemId, specificAccount = null) {
         return transaction(async session => {
             const order = await orders().findOne({ orderId }, { session });
@@ -334,7 +393,10 @@ function createOrderStore({ connection, Ledger, Inventory, cooldownSeconds = 30,
             const item = await inventory().findOne({ itemId }, { session });
             if (!item?.codes?.length) throw new OrderError(`Stock is empty for ${itemId}.`);
             const wanted = order.selectedAccount || specificAccount;
-            const index = wanted ? item.codes.findIndex(code => code.split(':')[0].trim().replace(/^@/, '').toLowerCase() === wanted.toLowerCase()) : 0;
+            const index = wanted ? item.codes.findIndex(code => {
+                const username = order.kind === 'account' ? parseAccountEntry(code)?.username : code.split(':')[0].trim().replace(/^@/, '');
+                return username?.toLowerCase() === wanted.toLowerCase();
+            }) : 0;
             if (index === -1) throw new OrderError('The requested account is no longer in stock.');
             const codes = [...item.codes];
             const code = codes.splice(index, 1)[0];
@@ -403,7 +465,7 @@ function createOrderStore({ connection, Ledger, Inventory, cooldownSeconds = 30,
     }
 
     return { initialize, ensureLedger, openOrder, get, byChannel, getDeliveryChannelId, saveDeliveryChannelId, patch, setProduct, couponsFor, reserveCoupon, releaseCoupon,
-        beginCheckout, attachCheckout, checkoutFailed, clearCheckout, markPaid, claim, delivered, reportIssue, setRating, deliverStock,
+        beginCheckout, attachCheckout, checkoutFailed, clearCheckout, markPaid, claim, delivered, reportIssue, setRating, restockAccounts, removeAccounts, reservedAccounts, deliverStock,
         beginClose, finalizeClose, abandonCreation, listOrders, recoveryOrders, parts, transaction };
 }
 

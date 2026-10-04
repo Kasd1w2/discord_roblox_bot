@@ -335,7 +335,7 @@ async function handleInteraction(interaction) {
                 const profileEmbed = new EmbedBuilder()
                     .setTitle(`👤 User Profile: ${targetUser.username}`)
                     .setThumbnail(targetUser.displayAvatarURL())
-                    .setColor(0x5865F2)
+                    .setColor(0xF1F5F9)
                     .addFields(
                         { name: '<a:MTF_Credits:1554593086544412803> Points Balance', value: `\`${points}\``, inline: true },
                         { name: '<:coupon:1554581616112832513> Unused Coupons', value: `\`${coupons}\``, inline: true },
@@ -419,7 +419,7 @@ const boostRow = new ActionRowBuilder().addComponents(
                     value: `\`\`\`bash\nOur Price:\n$${pkg.price}\n\`\`\``,
                     inline: true
                 })))
-                .setColor(0xff73fa);
+                .setColor(0xA855F7);
 
             const purchaseBtn = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
@@ -515,7 +515,7 @@ const boostRow = new ActionRowBuilder().addComponents(
                 const listingEmbed = new EmbedBuilder()
                     .setTitle(`🛍️ ${productTitle}`.slice(0, 256))
                     .setDescription(`Click on the button below to purchase!`)
-                    .setColor(0x2B2D31)
+                    .setColor(0x14B8A6)
                     .addFields(embedFields);
 
                 if (thumbnailPic) {
@@ -593,7 +593,7 @@ const boostRow = new ActionRowBuilder().addComponents(
             updateBotStatus(`📊 Checking inventory stock`);
             const allInventory = await Inventory.find({});
             if (!allInventory || allInventory.length === 0) return interaction.reply(publicMessage('No inventory records found.',
-                { title: '📦 Current Inventory Stock' }));
+                { title: '📦 Current Inventory Stock', color: 0xF59E0B }));
 
             const stockList = allInventory.map(item => `• **${item.itemId}**: ${item.codes.length} code(s) remaining`).join('\n');
             // Separate large catalogs so every item fits within Discord's embed limits.
@@ -602,8 +602,8 @@ const boostRow = new ActionRowBuilder().addComponents(
                 if (!pages.length || pages[pages.length - 1].length + line.length + 1 > 4000) pages.push(line);
                 else pages[pages.length - 1] += '\n' + line;
             }
-            await interaction.reply(publicMessage(pages[0], { title: '📦 Current Inventory Stock' }));
-            for (const page of pages.slice(1)) await interaction.followUp(publicMessage(page, { title: '📦 Inventory Continued' }));
+            await interaction.reply(publicMessage(pages[0], { title: '📦 Current Inventory Stock', color: 0xF59E0B }));
+            for (const page of pages.slice(1)) await interaction.followUp(publicMessage(page, { title: '📦 Inventory Continued', color: 0xF59E0B }));
         }
 
         if (commandLabel === 'remove-stock') {

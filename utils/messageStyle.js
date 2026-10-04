@@ -2,7 +2,7 @@ const { EmbedBuilder } = require('discord.js');
 
 // Public prose goes in embeds. Only explicit notification recipients stay in
 // content, since mentions inside an embed do not trigger Discord notifications.
-function publicMessage(description, { title = 'ℹ️ Shop Update', color = 0x2B2D31,
+function publicMessage(description, { title = 'ℹ️ Shop Update', color = 0x5865F2,
     users = [], roles = [], ...options } = {}) {
     return {
         ...options,

@@ -3,6 +3,7 @@ const { TIERS, CATEGORY_NAMES, normalizeAccountCategory, accountListings } = req
 const { OrderError } = require('./orderStore');
 
 const PAGE_SIZE = 25;
+const TIER_COLORS = { high_tier: 0xF97316, mid_tier: 0xFACC15, low_tier: 0x22C55E };
 const EMOJIS = {
     user: '<a:white_user:1554592911679553577>', price: '<:price:1554267169800585227>',
     shop: '<a:shop1:1554264889491726377>', folder: '<a:folder:1554593038003609620>',
@@ -16,7 +17,7 @@ function createAccountCatalog({ Inventory, store }) {
             description: tier.categories.map(key => CATEGORY_NAMES[key]).join(', ').slice(0, 100) })));
 
     function publicCatalog(title = 'Stocked User Stock') {
-        return { embeds: [new EmbedBuilder().setColor(0x2B2D31)
+        return { embeds: [new EmbedBuilder().setColor(0xF1F5F9)
             .setDescription(`# ${EMOJIS.user} ${String(title).slice(0, 256)}\n\n` +
                 'Browse available usernames and USD prices. Choose a tier below, then a category.\n\n' +
                 `${EMOJIS.price} Accounts are sorted from lowest to highest price.\n${EMOJIS.shop} Select a username to open its purchase ticket.\n` +
@@ -38,7 +39,7 @@ function createAccountCatalog({ Inventory, store }) {
         const menu = new StringSelectMenuBuilder().setCustomId(`account_category|${owner}|${tierKey}`).setPlaceholder('Choose a category...')
             .addOptions(counts.map(({ category, count }) => ({ label: CATEGORY_NAMES[category], value: category,
                 description: count ? `${count} account${count === 1 ? '' : 's'} available` : 'Currently sold out', emoji: EMOJIS.user })));
-        return { content: null, embeds: [new EmbedBuilder().setColor(0x5865F2)
+        return { content: null, embeds: [new EmbedBuilder().setColor(TIER_COLORS[tierKey])
             .setDescription(`# ${EMOJIS.folder} ${tierName(tier)}\n\n` +
                 counts.map(({ category, count }) => `${EMOJIS.user} **${CATEGORY_NAMES[category]}** — ${count} available`).join('\n') +
                 '\n\nChoose a category to browse its usernames and prices.')],
@@ -54,7 +55,8 @@ function createAccountCatalog({ Inventory, store }) {
         const pageCount = Math.max(1, Math.ceil(accounts.length / PAGE_SIZE));
         const page = Math.min(requestedPage, pageCount - 1);
         const shown = accounts.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-        const embed = new EmbedBuilder().setColor(0x2B2D31)
+        const tierKey = Object.keys(TIERS).find(key => TIERS[key].categories.includes(category));
+        const embed = new EmbedBuilder().setColor(TIER_COLORS[tierKey])
             .setDescription(`# ${EMOJIS.user} ${CATEGORY_NAMES[category]}\n\n` +
                 (shown.length ? shown.map(account => `${EMOJIS.user} **@${account.username}** — ${EMOJIS.price} \`$${(account.priceCents / 100).toFixed(2)}\``).join('\n') +
                 `\n\n${EMOJIS.shop} Choose a username below to open its order ticket.` :
@@ -66,7 +68,6 @@ function createAccountCatalog({ Inventory, store }) {
                 .addOptions(shown.map(account => ({ label: `@${account.username}`, value: account.username,
                     description: `$${(account.priceCents / 100).toFixed(2)} USD`, emoji: EMOJIS.user })))
         ));
-        const tierKey = Object.keys(TIERS).find(key => TIERS[key].categories.includes(category));
         components.push(new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId(`account_page|${owner}|${category}|${Math.max(0, page - 1)}|previous`)
                 .setLabel('Previous').setEmoji('⬅️').setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
@@ -110,7 +111,7 @@ function createAccountCatalog({ Inventory, store }) {
             if (!Number.isSafeInteger(page) || page < 0 || page > 100000) throw new OrderError('Invalid catalog page.');
             payload = await listingPayload(owner, value, page);
         } else if (action === 'account_categories') payload = await categoriesPayload(owner, value);
-        else payload = { content: null, embeds: [new EmbedBuilder().setColor(0x5865F2)
+        else payload = { content: null, embeds: [new EmbedBuilder().setColor(0xF1F5F9)
             .setDescription(`# ${EMOJIS.folder} Account Tiers\n\nChoose a tier to browse available usernames and prices.`)],
             components: [new ActionRowBuilder().addComponents(tiersMenu(`account_tier_private|${owner}`))], allowedMentions: { parse: [] } };
         await interaction.editReply(payload);

@@ -8,6 +8,8 @@ const { shopTerms } = require('./shopTerms');
 
 const money = cents => cents == null ? 'Awaiting quote' : `$${(cents / 100).toFixed(2)} USD`;
 const safeText = value => String(value ?? '').replace(/[`*_~|<>]/g, '').slice(0, 180);
+const orderColor = order => order.kind === 'boost' ? 0xFF73FA : order.kind === 'decoration' ? 0xA855F7 :
+    order.kind === 'account' ? 0xF1F5F9 : 0x14B8A6;
 const COMMANDS = [
     { name: 'terms', description: 'Staff: post the shop terms and warranty policy in this channel', type: 1 },
     { name: 'my-orders', description: 'View your saved orders and their progress', type: 1 },
@@ -36,7 +38,7 @@ function completedReceipt(order) {
     const method = safeText(order.paymentMethod || 'Unknown');
     const paymentEmoji = /crypto|eth|ltc|btc|sol/i.test(method) ? '<:crypto:1554263320997920799>' :
         /stripe|card/i.test(method) ? '<:stripe:1554263177829687398>' : '<:dots:1555973916944637952>';
-    return new EmbedBuilder().setTitle(process.env.LIVE_DELIVERIES_TITLE || 'Stocked | New Completed Order!').setColor(0x2B2D31)
+    return new EmbedBuilder().setTitle(process.env.LIVE_DELIVERIES_TITLE || 'Stocked | New Completed Order!').setColor(0x57F287)
         .addFields(
             { name: 'Star Rating', value: `\`${rating}\`` },
             { name: 'Product Purchased', value: `${product === 'Toy Code' ? '🍂' : '🎁'} \`${product}\`` },
@@ -89,7 +91,9 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
     }
 
     function orderSummary(order) {
-        return new EmbedBuilder().setTitle(`Order ${order.orderId}`).setColor(order.paymentStatus === 'paid' ? 0x57F287 : 0x5865F2)
+        const color = order.status === 'issue' ? 0xFEE75C : order.status === 'cancelled' ? 0xED4245 :
+            order.status === 'expired' ? 0xF59E0B : order.paymentStatus === 'paid' ? 0x57F287 : orderColor(order);
+        return new EmbedBuilder().setTitle(`Order ${order.orderId}`).setColor(color)
             .setDescription(`**${safeText(order.productName || formatProductName(order.productKey))}**` +
                 (order.selectedAccount ? `\nRequested account: @${safeText(order.selectedAccount)}` : ''))
             .addFields(
@@ -121,7 +125,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             try {
                 const panel = await channel.messages.fetch(order.panelMessageId);
                 await panel.edit(publicMessage(`Order **${order.orderId}** — ${safeText(order.productName)}.\nFor help, send a message in this ticket.`,
-                    { title: '🎫 Order Ticket', components: [] }));
+                    { title: '🎫 Order Ticket', color: orderColor(order), components: [] }));
             } catch (error) { if (error.code !== 10008) throw error; }
         }
         await store.patch(order.orderId, { panelMessageId: null, claimedBy: null });
@@ -133,7 +137,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
         const embed = new EmbedBuilder().setTitle('🛒 Secure Checkout Portal')
             .setDescription(`Order **${order.orderId}**\n**${name}**\nTotal: **${money(order.totalCents)}**${details}` +
                 (order.coupon ? `\n\n${order.coupon.discountPct}% coupon reserved. It is consumed only after payment.` : ''))
-            .setColor(order.coupon ? 0x57F287 : 0x5865F2);
+            .setColor(order.coupon ? 0xFFD700 : orderColor(order));
         const payment = new StringSelectMenuBuilder().setCustomId(`payment_select|${order.orderId}`).setPlaceholder('Choose your payment method...')
             .addOptions([
                 { label: 'Pay with Card (Stripe)', value: 'select_stripe', emoji: '<:stripe:1554263177829687398>' },
@@ -186,7 +190,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             });
             const saved = await store.patch(order.orderId, { channelId: channel.id });
             await channel.send(publicMessage(`Welcome, <@${order.buyerId}>!\nYour order ID is **${order.orderId}**.\nOur staff will help you here.`,
-                { title: '🎫 Your Order Ticket', users: [order.buyerId], roles: [adminRoleId] }));
+                { title: '🎫 Your Order Ticket', color: orderColor(order), users: [order.buyerId], roles: [adminRoleId] }));
             if (input.kind === 'boost' || input.kind === 'decoration') {
                 const choices = input.kind === 'boost' ? boostPackages.map(([key, label]) => ({ label, value: key, emoji: '<a:boostlogo:1554263092244906005>' })) :
                     decoPackages.map(pkg => ({ label: `$${pkg.shopPrice} Shop Tier → $${pkg.price}`, value: `deco_${pkg.shopPrice}`, emoji: '<:price:1554267169800585227>' }));
@@ -195,13 +199,13 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
                 const welcome = new EmbedBuilder().setTitle(input.kind === 'boost' ? '🚀 Server Boost Purchase' : '✨ Decoration Purchase')
                     .setDescription(input.kind === 'boost' ? 'Select the package you want below. Staff will help with payment and delivery.' :
                         'Select the shop price matching your decoration, then send its name or shop link in this ticket.')
-                    .setColor(0xff73fa).setFooter({ text: `Order ${order.orderId}` });
+                    .setColor(orderColor(order)).setFooter({ text: `Order ${order.orderId}` });
                 const message = await channel.send({ embeds: [welcome],
                     components: [new ActionRowBuilder().addComponents(menu), buyerRow(saved)], allowedMentions: { parse: [] } });
                 await store.patch(order.orderId, { checkoutMessageId: message.id });
             } else if (input.baseCents) await renderCheckout(saved);
             else await channel.send(publicMessage('Staff will confirm your item and quote a price before payment.',
-                { title: '💬 Waiting for a Quote', components: [buyerRow(saved)] }));
+                { title: '💬 Waiting for a Quote', color: 0xF59E0B, components: [buyerRow(saved)] }));
             await interaction.editReply({ content: `✅ Order **${order.orderId}** created: <#${channel.id}>` });
         } catch (error) {
             // Preserve a partly created ticket and its saved order for staff support.
@@ -741,7 +745,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             await store.patch(order.orderId, { transactionHash: hash });
             await interaction.channel.send(publicMessage(`<@${order.buyerId}> submitted payment proof for **${order.orderId}**.\n` +
                 `\`\`\`${hash.replace(/`/g, '')}\`\`\`\nStaff will verify the transaction.`,
-                { title: '🧾 Payment Proof Submitted', color: 0x5865F2, users: [order.buyerId], roles: [adminRoleId] }));
+                { title: '🧾 Payment Proof Submitted', color: 0xF7931A, users: [order.buyerId], roles: [adminRoleId] }));
             await interaction.editReply({ content: 'Transaction hash saved. Staff will verify it; submission does not confirm payment.' });
             return true;
         }

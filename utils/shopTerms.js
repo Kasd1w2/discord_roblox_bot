@@ -1,7 +1,7 @@
 const { EmbedBuilder } = require('discord.js');
 
 function shopTerms() {
-    return new EmbedBuilder().setColor(0x2B2D31)
+    return new EmbedBuilder().setColor(0xF59E0B)
         .setDescription('# <a:Termss:1554267208882978896> Stocked | Shop Terms\n\n' +
             '<a:important:1554267188272308248> Please read these terms before placing an order. Ask staff if anything is unclear.')
         .addFields(

@@ -115,6 +115,7 @@ const Ledger = require('./models/Ledger');
 const appCommands = require('./commands/commandDefinitions');
 const { createOrderRuntime } = require('./utils/orderRuntime');
 const { OrderError } = require('./utils/orderStore');
+const { publicMessage } = require('./utils/messageStyle');
 
 const ADMIN_ROLE_ID = '1542306776622309437';
 
@@ -158,7 +159,8 @@ async function sendInteractionError(interaction, content = '<a:error:15545929348
         if (interaction._shopUpdate) {
             await interaction.followUp({ content, flags: 64 });
         } else if (interaction.deferred && !interaction.replied && interaction.ephemeral !== null) {
-            await interaction.editReply({ content, embeds: [], components: [] });
+            await interaction.editReply(interaction.ephemeral ? { content, embeds: [], components: [] } :
+                publicMessage(content, { title: '❌ Something Went Wrong', color: 0xED4245, components: [] }));
         } else if (interaction.deferred || interaction.replied) {
             await interaction.followUp({ content, flags: 64 });
         } else {
@@ -276,10 +278,11 @@ webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
                 });
                 const target = channel || await botClient.channels.fetch(process.env.ORDER_LOG_CHANNEL_ID || '1542337221791711324');
                 if (!target?.isTextBased()) throw new Error('Legacy payment is saved but its notification channel is unavailable.');
-                await target.send({ content: `✅ **Payment confirmed (pre-update order)** — <@${buyerId}>\n` +
+                await target.send(publicMessage(`**Payment confirmed (pre-update order)** — <@${buyerId}>\n` +
                     `Item: **${formatProductName(itemId)}** • $${(paidCents / 100).toFixed(2)} USD\n` +
                     `${points ?? calculatePoints(paidCents / 100)} points awarded. <@&${ADMIN_ROLE_ID}> Please arrange manual delivery.`,
-                    allowedMentions: { users: [buyerId], roles: [ADMIN_ROLE_ID] }, nonce: checkout.id.slice(-20), enforceNonce: true });
+                    { title: '✅ Payment Confirmed', color: 0x57F287, users: [buyerId], roles: [ADMIN_ROLE_ID],
+                        nonce: checkout.id.slice(-20), enforceNonce: true }));
                 await notices.updateOne({ _id: checkout.id }, { $set: { sent: true, sentAt: new Date() } }, { upsert: true });
             }
         }
@@ -317,8 +320,12 @@ botClient.on('messageReactionAdd', async (reaction, user) => {
         if (await orderRuntime.handleReaction(reaction, user)) return;
 
         if (reaction.message.channel.name?.startsWith('trade-')) {
-            if (reaction.emoji.id === '1554592986334105620') await reaction.message.channel.send(`<a:confirm:1554592986334105620> **Order confirmed complete by <@${user.id}>!** Thank you for your purchase.`);
-            else if (reaction.emoji.id === '1554592934828179476') await reaction.message.channel.send(`<a:error:1554592934828179476> **ISSUE REPORTED:** <@&${ADMIN_ROLE_ID}>, <@${user.id}> reported a problem with this trade delivery! Please assist.`);
+            if (reaction.emoji.id === '1554592986334105620') await reaction.message.channel.send(publicMessage(
+                `**Order confirmed complete by <@${user.id}>!** Thank you for your purchase.`,
+                { title: '✅ Order Complete', color: 0x57F287, users: [user.id] }));
+            else if (reaction.emoji.id === '1554592934828179476') await reaction.message.channel.send(publicMessage(
+                `<@${user.id}> reported a problem with this trade delivery. <@&${ADMIN_ROLE_ID}>, please assist.`,
+                { title: '⚠️ Delivery Issue', color: 0xFEE75C, users: [user.id], roles: [ADMIN_ROLE_ID] }));
         }
     } catch (error) {
         console.error('Reaction handling failed:', error);
@@ -386,14 +393,15 @@ async function handleInteraction(interaction) {
 
             try {
                 const userLedger = await Ledger.findOne({ discordId: targetUser.id });
-                if (!userLedger) return interaction.editReply({ content: `<a:error:1554592934828179476> <@${targetUser.id}> does not have any records or points on file.` });
+                if (!userLedger) return interaction.editReply(publicMessage(`<@${targetUser.id}> does not have any records or points on file.`,
+                    { title: '👤 No Profile Found', color: 0xFEE75C }));
 
                 const points = userLedger.points || 0;
                 const coupons = userLedger.coupons && userLedger.coupons.length > 0 ? userLedger.coupons.map(c => `${c}% Off`).join(', ') : 'None';
                 const purchaseCount = userLedger.purchases ? userLedger.purchases.length : 0;
 
                 const profileEmbed = new EmbedBuilder()
-                    .setTitle(`<:white_user:1554592911679553577> User Profile: ${targetUser.username}`)
+                    .setTitle(`👤 User Profile: ${targetUser.username}`)
                     .setThumbnail(targetUser.displayAvatarURL())
                     .setColor(0x5865F2)
                     .addFields(
@@ -594,15 +602,15 @@ const boostRow = new ActionRowBuilder().addComponents(
                 const targetForum = await interaction.guild.channels.fetch(selectedChannelOption.id);
 
                 const embedFields = [
-                    { name: 'Price', value: `$${productPrice} USD`, inline: true },
-                    { name: 'Delivery', value: 'Manual delivery after payment confirmation', inline: true },
+                    { name: '💵 Price', value: `$${productPrice} USD`, inline: true },
+                    { name: '📦 Delivery', value: 'Manual delivery after payment confirmation', inline: true },
                     { name: '\u200B', value: '\u200B', inline: true }
                 ];
 
-                if (robloxLink) embedFields.push({ name: 'Rolimons Link', value: `[View item](${robloxLink})`, inline: false });
+                if (robloxLink) embedFields.push({ name: '🔗 Rolimons Link', value: `[View item](${robloxLink})`, inline: false });
 
                 const listingEmbed = new EmbedBuilder()
-                    .setTitle(`${productTitle}`)
+                    .setTitle(`🛍️ ${productTitle}`.slice(0, 256))
                     .setDescription(`Click on the button below to purchase!`)
                     .setColor(0x2B2D31)
                     .addFields(embedFields);
@@ -644,7 +652,7 @@ const boostRow = new ActionRowBuilder().addComponents(
 
         if (commandLabel === 'request-limited') {
             const requestEmbed = new EmbedBuilder()
-                .setTitle('<a:aPES_Magnifying:1554592881707319448> Need a Specific Limited or Toycode?')
+                .setTitle('🔎 Need a Specific Limited or Toycode?')
                 .setDescription(
                     `Can't find the item you're looking for? **We'll help track it down.**\n\n` +
                     `We can source **practically any Limited or Toycode** upon request.\n\n` +
@@ -690,10 +698,18 @@ const boostRow = new ActionRowBuilder().addComponents(
         if (commandLabel === 'stock') {
             updateBotStatus(`📊 Checking inventory stock`);
             const allInventory = await Inventory.find({});
-            if (!allInventory || allInventory.length === 0) return interaction.reply({ content: 'No inventory records found.' });
+            if (!allInventory || allInventory.length === 0) return interaction.reply(publicMessage('No inventory records found.',
+                { title: '📦 Current Inventory Stock' }));
 
             const stockList = allInventory.map(item => `• **${item.itemId}**: ${item.codes.length} code(s) remaining`).join('\n');
-            await interaction.reply({ content: `<a:box:1554592797733163099> **Current Inventory Stock:**\n${stockList}` });
+            // Separate large catalogs so every item fits within Discord's embed limits.
+            const pages = [];
+            for (const line of stockList.split('\n')) {
+                if (!pages.length || pages[pages.length - 1].length + line.length + 1 > 4000) pages.push(line);
+                else pages[pages.length - 1] += '\n' + line;
+            }
+            await interaction.reply(publicMessage(pages[0], { title: '📦 Current Inventory Stock' }));
+            for (const page of pages.slice(1)) await interaction.followUp(publicMessage(page, { title: '📦 Inventory Continued' }));
         }
 
         if (commandLabel === 'remove-stock') {

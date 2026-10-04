@@ -2,6 +2,7 @@ const { randomBytes } = require('node:crypto');
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder,
     ModalBuilder, TextInputBuilder, TextInputStyle, ChannelType, PermissionFlagsBits, AttachmentBuilder } = require('discord.js');
 const { createOrderStore, OrderError, toCents, requireOpen } = require('./orderStore');
+const { publicMessage } = require('./messageStyle');
 
 const money = cents => cents == null ? 'Awaiting quote' : `$${(cents / 100).toFixed(2)} USD`;
 const safeText = value => String(value ?? '').replace(/[`*_~|<>]/g, '').slice(0, 180);
@@ -116,8 +117,8 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
         if (channel) {
             try {
                 const panel = await channel.messages.fetch(order.panelMessageId);
-                await panel.edit({ content: `Order **${order.orderId}** — ${safeText(order.productName)}.\nFor help, send a message in this ticket.`,
-                    embeds: [], components: [], allowedMentions: { parse: [] } });
+                await panel.edit(publicMessage(`Order **${order.orderId}** — ${safeText(order.productName)}.\nFor help, send a message in this ticket.`,
+                    { title: '🎫 Order Ticket', components: [] }));
             } catch (error) { if (error.code !== 10008) throw error; }
         }
         await store.patch(order.orderId, { panelMessageId: null, claimedBy: null });
@@ -126,7 +127,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
     function checkoutPayload(order, coupons = []) {
         const name = safeText(order.productName || formatProductName(order.productKey));
         const details = order.kind === 'decoration' ? '\n\nSend the exact decoration name or shop link in this ticket. Staff delivers your gift link after payment confirmation.' : '';
-        const embed = new EmbedBuilder().setTitle('<a:folder:1554593038003609620> Secure Checkout Portal')
+        const embed = new EmbedBuilder().setTitle('🛒 Secure Checkout Portal')
             .setDescription(`Order **${order.orderId}**\n**${name}**\nTotal: **${money(order.totalCents)}**${details}` +
                 (order.coupon ? `\n\n${order.coupon.discountPct}% coupon reserved. It is consumed only after payment.` : ''))
             .setColor(order.coupon ? 0x57F287 : 0x5865F2);
@@ -142,7 +143,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             new ButtonBuilder().setCustomId(`use_coupon_no|${order.orderId}`).setLabel(order.coupon ? 'Remove Coupon' : 'Skip Coupon').setStyle(ButtonStyle.Secondary)
         ));
         components.push(buyerRow(order));
-        return { embeds: [embed], components, allowedMentions: { parse: [] } };
+        return { content: null, embeds: [embed], components, allowedMentions: { parse: [] } };
     }
 
     async function renderCheckout(order, interaction = null) {
@@ -181,14 +182,14 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
                 ]
             });
             const saved = await store.patch(order.orderId, { channelId: channel.id });
-            await channel.send({ content: `<@${order.buyerId}> | <@&${adminRoleId}>\nYour order ID is **${order.orderId}**.`,
-                allowedMentions: { users: [order.buyerId], roles: [adminRoleId] } });
+            await channel.send(publicMessage(`Welcome, <@${order.buyerId}>!\nYour order ID is **${order.orderId}**.\nOur staff will help you here.`,
+                { title: '🎫 Your Order Ticket', users: [order.buyerId], roles: [adminRoleId] }));
             if (input.kind === 'boost' || input.kind === 'decoration') {
                 const choices = input.kind === 'boost' ? boostPackages.map(([key, label]) => ({ label, value: key, emoji: '<a:boostlogo:1554263092244906005>' })) :
                     decoPackages.map(pkg => ({ label: `$${pkg.shopPrice} Shop Tier → $${pkg.price}`, value: `deco_${pkg.shopPrice}`, emoji: '<:price:1554267169800585227>' }));
                 const menu = new StringSelectMenuBuilder().setCustomId(`${input.kind === 'boost' ? 'select_boost_package' : 'select_deco_package'}|${order.orderId}`)
                     .setPlaceholder('Select your package...').addOptions(choices);
-                const welcome = new EmbedBuilder().setTitle(input.kind === 'boost' ? 'Server Boost Purchase' : 'Decoration Purchase')
+                const welcome = new EmbedBuilder().setTitle(input.kind === 'boost' ? '🚀 Server Boost Purchase' : '✨ Decoration Purchase')
                     .setDescription(input.kind === 'boost' ? 'Select the package you want below. Staff will help with payment and delivery.' :
                         'Select the shop price matching your decoration, then send its name or shop link in this ticket.')
                     .setColor(0xff73fa).setFooter({ text: `Order ${order.orderId}` });
@@ -196,7 +197,8 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
                     components: [new ActionRowBuilder().addComponents(menu), buyerRow(saved)], allowedMentions: { parse: [] } });
                 await store.patch(order.orderId, { checkoutMessageId: message.id });
             } else if (input.baseCents) await renderCheckout(saved);
-            else await channel.send({ content: 'Staff will confirm your item and quote a price before payment.', components: [buyerRow(saved)] });
+            else await channel.send(publicMessage('Staff will confirm your item and quote a price before payment.',
+                { title: '💬 Waiting for a Quote', components: [buyerRow(saved)] }));
             await interaction.editReply({ content: `✅ Order **${order.orderId}** created: <#${channel.id}>` });
         } catch (error) {
             // Preserve a partly created ticket and its saved order for staff support.
@@ -209,7 +211,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
     async function notifyPaid(result) {
         const order = result.order;
         if (order.paymentNoticeSent) { await retireStaffPanel(order); return; }
-        const text = `<a:confirm:1554592986334105620> **Payment confirmed — ${order.orderId}**\n` +
+        const text = `Order **${order.orderId}**\n` +
             `<@${order.buyerId}> paid **${money(order.paidCents)}** using **${safeText(order.paymentMethod)}**.\n` +
             `<a:MTF_Credits:1554593086544412803> Earned **${order.pointsEarned} points**.\n` +
             `<@&${adminRoleId}> Manual delivery is required${order.kind === 'decoration' ? ' via gift link' : ''}.`;
@@ -217,18 +219,21 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
         if (channel) {
             // A stable Discord nonce also reduces duplicate notices when the process
             // restarts after Discord accepted the message but before MongoDB saved it.
-            await channel.send({ content: text, allowedMentions: { users: [order.buyerId], roles: [adminRoleId] },
-                nonce: order.orderId.replace('ORD-', ''), enforceNonce: true });
+            await channel.send(publicMessage(text, { title: '✅ Payment Confirmed', color: 0x57F287,
+                users: [order.buyerId], roles: [adminRoleId], nonce: order.orderId.replace('ORD-', ''), enforceNonce: true }));
             await retireStaffPanel(order);
             if (order.checkoutMessageId) {
-                try { await (await channel.messages.fetch(order.checkoutMessageId)).edit({ components: [], content: 'Payment confirmed. Staff will deliver your order.' }); }
+                try { await (await channel.messages.fetch(order.checkoutMessageId)).edit(publicMessage(
+                    `Order **${order.orderId}** has been paid.\nStaff will deliver your order.`,
+                    { title: '✅ Payment Confirmed', color: 0x57F287, components: [] })); }
                 catch (error) { if (error.code !== 10008) throw error; }
             }
         } else {
             const logId = process.env.ORDER_LOG_CHANNEL_ID || '1542337221791711324';
             const log = await botClient.channels.fetch(logId);
             if (!log?.isTextBased()) throw new Error(`Payment for ${order.orderId} is saved, but no notification channel is available.`);
-            await log.send({ content: text + '\n⚠️ The ticket is unavailable. Staff must arrange delivery.', allowedMentions: { roles: [adminRoleId], users: [] } });
+            await log.send(publicMessage(text + '\n⚠️ The ticket is unavailable. Staff must arrange delivery.',
+                { title: '⚠️ Paid Order Needs Delivery', color: 0xFEE75C, roles: [adminRoleId] }));
         }
         await store.patch(order.orderId, { paymentNoticeSent: true });
     }
@@ -261,7 +266,8 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
     async function stripeCheckout(order, interaction) {
         requireOpen(order);
         order = await reconcileCheckout(order);
-        if (order.paymentStatus === 'paid') { await interaction.editReply({ content: 'This order is already paid.', embeds: [], components: [] }); return; }
+        if (order.paymentStatus === 'paid') { await interaction.editReply(publicMessage('This order is already paid. Staff will handle delivery.',
+            { title: '✅ Payment Confirmed', color: 0x57F287, components: [] })); return; }
         if (!order.totalCents) throw new OrderError('Staff must confirm a price before checkout.');
         let checkout;
         if (order.stripeSessionId) checkout = await stripe.checkout.sessions.retrieve(order.stripeSessionId);
@@ -290,7 +296,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
                 throw error;
             }
         }
-        const embed = new EmbedBuilder().setTitle('<:stripe:1554263177829687398> Stripe Card Checkout').setColor(0x635BFF)
+        const embed = new EmbedBuilder().setTitle('💳 Stripe Card Checkout').setColor(0x635BFF)
             .setDescription(`Order **${order.orderId}**\nTotal: **${money(checkout.amount_total)}**, including the 5% processing fee.\n` +
                 'Staff will deliver manually after payment confirmation.\nCheckout expires in about 30 minutes; an unused coupon is released on expiry.');
         const pay = new ButtonBuilder().setLabel(`Pay ${money(checkout.amount_total)}`).setURL(checkout.url).setStyle(ButtonStyle.Link);
@@ -509,10 +515,9 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
                 // Keep the existing channel delivery format. The complete original
                 // entry remains available privately through /my-codes.
                 const displayed = delivery.code.replace(/:.*$/, '');
-                await interaction.channel.send({ content: `Hey <@${order.buyerId}>! Delivery for **${order.orderId}**:`,
-                    embeds: [new EmbedBuilder().setTitle('<a:Delivery:1554592662013739109> Order Delivery')
-                        .setDescription(`Code for **${safeText(itemId)}**:\n\`\`\`${displayed.replace(/`/g, '')}\`\`\``).setColor(0x57F287)],
-                    allowedMentions: { users: [order.buyerId], roles: [] } });
+                await interaction.channel.send(publicMessage(`Hey <@${order.buyerId}>!\nOrder **${order.orderId}**\n\n` +
+                    `Code for **${safeText(itemId)}**:\n\`\`\`${displayed.replace(/`/g, '')}\`\`\``,
+                    { title: '📦 Order Delivery', color: 0x57F287, users: [order.buyerId] }));
                 await retireStaffPanel(delivery.order);
                 await interaction.editReply({ content: '✅ Delivery recorded. Points were awarded once at payment confirmation.' });
             } else if (cmd === 'close') {
@@ -616,8 +621,8 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             if (!reason) throw new OrderError('Describe the issue first.');
             const saved = await store.reportIssue(order.orderId, interaction.user.id, reason);
             await retireStaffPanel(saved);
-            await interaction.channel.send({ content: `⚠️ **Issue reported — ${order.orderId}**\n<@&${adminRoleId}>\n${reason}`,
-                allowedMentions: { roles: [adminRoleId], users: [] } });
+            await interaction.channel.send(publicMessage(`Order **${order.orderId}**\n\n${reason}`,
+                { title: '⚠️ Order Issue Reported', color: 0xFEE75C, roles: [adminRoleId] }));
             await interaction.editReply({ content: 'Your issue was saved and staff notified.' });
             return true;
         }
@@ -652,7 +657,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             const menu = new StringSelectMenuBuilder().setCustomId(`apply_coupon|${order.orderId}`).setPlaceholder('Choose a coupon...')
                 .addOptions(coupons.slice(0, 25).map(pct => ({ label: `${pct}% Off Coupon`, value: String(pct), emoji: '<:coupon:1554581616112832513>' })));
             const back = new ButtonBuilder().setCustomId(`use_coupon_no|${order.orderId}`).setLabel('Continue Without Coupon').setStyle(ButtonStyle.Secondary);
-            await interaction.editReply({ embeds: [new EmbedBuilder().setTitle('Select Coupon').setDescription('Coupons are reserved until payment, cancellation, or expiry.').setColor(0xFFD700)],
+            await interaction.editReply({ content: null, embeds: [new EmbedBuilder().setTitle('🎟️ Select Coupon').setDescription('Coupons are reserved until payment, cancellation, or expiry.').setColor(0xFFD700)],
                 components: [new ActionRowBuilder().addComponents(menu), new ActionRowBuilder().addComponents(back), buyerRow(order)] });
             return true;
         }
@@ -697,16 +702,16 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
                 order = await store.patch(order.orderId, { paymentMethod: method === 'select_crypto' ? 'Crypto' : 'Other' });
                 if (method === 'select_crypto') {
                     const amounts = await getCryptoAmounts(order.totalCents / 100);
-                    const embed = new EmbedBuilder().setTitle('<:crypto:1554263320997920799> Crypto Payment Gateway').setColor(0xF7931A)
+                    const embed = new EmbedBuilder().setTitle('🪙 Crypto Payment Gateway').setColor(0xF7931A)
                         .setDescription(`Order **${order.orderId}** • **${money(order.totalCents)}**\nStaff verifies payments and delivers manually.\n` +
                             'Confirm the live amount and network with staff before sending. These amounts are a snapshot.');
                     const wallets = [['ETH', amounts.eth, '0x42d01fE1f89C6cDE28ef7a34Ef5A7B452eD6B271'], ['LTC', amounts.ltc, 'MWSeYJ3qgm3j5yYGGFimu5ebSzHA9oUvBy'],
                         ['BTC', amounts.btc, '34hRphphvMtvqiWPawAESR1bxkfvUoFNhh'], ['SOL', amounts.sol, '222P8wKAC2s2UcfNyANYre8yVKjU1c3C3MA7mYqK92ZB']];
                     embed.addFields(wallets.map(([name, amount, wallet]) => ({ name, value: `\`\`\`${amount} ${name}\`\`\`\n\`\`\`${wallet}\`\`\`` })));
                     const tx = new ButtonBuilder().setCustomId(`open_tx_modal|${order.orderId}`).setLabel('Submit Transaction Hash').setStyle(ButtonStyle.Success);
-                    await interaction.editReply({ embeds: [embed], components: [new ActionRowBuilder().addComponents(tx), buyerRow(order)] });
+                    await interaction.editReply({ content: null, embeds: [embed], components: [new ActionRowBuilder().addComponents(tx), buyerRow(order)] });
                 } else {
-                    await interaction.editReply({ embeds: [new EmbedBuilder().setTitle('Other Payment Methods').setColor(0x5865F2)
+                    await interaction.editReply({ content: null, embeds: [new EmbedBuilder().setTitle('💳 Other Payment Methods').setColor(0x5865F2)
                         .setDescription(`Order **${order.orderId}** • **${money(order.totalCents)}**\nTell staff what you would like to pay with (PayPal, Limiteds, or another method).\nStaff confirms payment before delivery.`)],
                         components: [buyerRow(order)] });
                 }
@@ -727,8 +732,9 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             requireOpen(order);
             const hash = interaction.fields.getTextInputValue('tx_hash_input').trim();
             await store.patch(order.orderId, { transactionHash: hash });
-            await interaction.channel.send({ content: `<@&${adminRoleId}> <@${order.buyerId}> submitted payment proof for **${order.orderId}**.\n\`\`\`${hash.replace(/`/g, '')}\`\`\``,
-                allowedMentions: { roles: [adminRoleId], users: [order.buyerId] } });
+            await interaction.channel.send(publicMessage(`<@${order.buyerId}> submitted payment proof for **${order.orderId}**.\n` +
+                `\`\`\`${hash.replace(/`/g, '')}\`\`\`\nStaff will verify the transaction.`,
+                { title: '🧾 Payment Proof Submitted', color: 0x5865F2, users: [order.buyerId], roles: [adminRoleId] }));
             await interaction.editReply({ content: 'Transaction hash saved. Staff will verify it; submission does not confirm payment.' });
             return true;
         }
@@ -800,7 +806,10 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
         // Buyer reactions are feedback; only staff can change delivery/payment status.
         const content = reaction.emoji.id === '1554592986334105620' ? `✅ <@${user.id}> confirmed receipt for **${order.orderId}**.` :
             `⚠️ <@&${adminRoleId}> <@${user.id}> reported a delivery issue for **${order.orderId}**. Send a message in this ticket so staff can assist.`;
-        await reaction.message.channel.send({ content, allowedMentions: { users: [user.id], roles: [adminRoleId] } });
+        const issue = reaction.emoji.id === '1554592934828179476';
+        await reaction.message.channel.send(publicMessage(content,
+            { title: issue ? '⚠️ Delivery Issue' : '✅ Delivery Received', color: issue ? 0xFEE75C : 0x57F287,
+                users: [user.id], roles: issue ? [adminRoleId] : [] }));
         return true;
     }
 

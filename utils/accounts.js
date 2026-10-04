@@ -1,10 +1,10 @@
 const TIERS = {
-    high_tier: { label: '🔥 High Tier', categories: ['2l', '3d', 'real_words'] },
+    high_tier: { label: '🔥 High Tier', categories: ['3d', 'real_words'] },
     mid_tier: { label: '⚡ Mid Tier', categories: ['3l', '4d', 'clean_compounds'] },
     low_tier: { label: '🌱 Low Tier', categories: ['triple', '4l', 'edgy', 'finance', 'leetspeak', 'other'] }
 };
 const CATEGORY_NAMES = {
-    '2l': '2 Letters', '3d': '3 Digits', real_words: 'Real Words', '3l': '3 Letters', '4d': '4 Digits',
+    '3d': '3 Digits', real_words: 'Real Words', '3l': '3 Letters', '4d': '4 Digits',
     clean_compounds: 'Clean Compounds', triple: 'Triple Numbers', '4l': '4 Letters', edgy: 'Edgy Compounds',
     finance: 'Finance Compounds', leetspeak: 'Leetspeak', other: 'Other'
 };

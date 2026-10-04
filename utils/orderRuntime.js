@@ -522,8 +522,9 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
                 const delivery = await store.deliverStock(order.orderId, interaction.user.id, itemId, interaction.options.getString('specific_account'));
                 const account = order.kind === 'account' ? parseAccountEntry(delivery.code) : null;
                 const displayed = delivery.code.replace(/:.*$/, '');
-                const details = account ? `👤 **Username:** \`@${account.username}\`\n💵 **Price:** \`$${(account.priceCents / 100).toFixed(2)}\`\n\n` +
-                    '🔐 Your login details are available privately with `/my-codes`.' :
+                const details = account ? `<a:white_user:1554592911679553577> **Username:** \`@${account.username}\`\n` +
+                    `<:price:1554267169800585227> **Price:** \`$${(account.priceCents / 100).toFixed(2)}\`\n\n` +
+                    '<a:folder:1554593038003609620> Your login details are available privately with `/my-codes`.' :
                     `Code for **${safeText(itemId)}**:\n\`\`\`${displayed.replace(/`/g, '')}\`\`\``;
                 await interaction.channel.send(publicMessage(`Hey <@${order.buyerId}>!\nOrder **${order.orderId}**\n\n${details}`,
                     { title: '📦 Order Delivery', color: 0x57F287, users: [order.buyerId] }));

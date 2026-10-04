@@ -56,6 +56,7 @@ function createOrderStore({ connection, Ledger, Inventory, cooldownSeconds = 30,
     const gates = () => db().collection('shop_ticket_cooldowns');
     const parts = () => db().collection('shop_transcript_parts');
     const buyerLocks = () => db().collection('shop_buyer_locks');
+    const settings = () => db().collection('shop_settings');
     const ledger = () => Ledger.collection;
     const inventory = () => Inventory.collection;
 
@@ -138,6 +139,12 @@ function createOrderStore({ connection, Ledger, Inventory, cooldownSeconds = 30,
 
     async function get(orderId) { return orders().findOne({ orderId }); }
     async function byChannel(channelId) { return orders().findOne({ channelId }); }
+    async function getDeliveryChannelId(guildId) {
+        return (await settings().findOne({ _id: `live-deliveries:${guildId}` }))?.channelId || null;
+    }
+    async function saveDeliveryChannelId(guildId, channelId) {
+        await settings().updateOne({ _id: `live-deliveries:${guildId}` }, { $set: { channelId, updatedAt: new Date() } }, { upsert: true });
+    }
     async function patch(orderId, fields) {
         await orders().updateOne({ orderId }, { $set: { ...fields, updatedAt: new Date() } });
         return get(orderId);
@@ -304,6 +311,16 @@ function createOrderStore({ connection, Ledger, Inventory, cooldownSeconds = 30,
         return get(orderId);
     }
 
+    async function setRating(orderId, buyerId, stars) {
+        if (!Number.isInteger(stars) || stars < 1 || stars > 5) throw new OrderError('Choose a rating from 1 to 5 stars.');
+        const result = await orders().updateOne({ orderId, buyerId, paymentStatus: 'paid', fulfillmentStatus: 'delivered' }, {
+            $set: { starRating: stars, ratedAt: new Date(), updatedAt: new Date() },
+            $push: { audit: { action: 'rated', actorId: buyerId, at: new Date(), stars } }
+        });
+        if (!result.matchedCount) throw new OrderError('Only the buyer can rate an order after delivery.');
+        return get(orderId);
+    }
+
     async function deliverStock(orderId, actorId, itemId, specificAccount = null) {
         return transaction(async session => {
             const order = await orders().findOne({ orderId }, { session });
@@ -380,12 +397,13 @@ function createOrderStore({ connection, Ledger, Inventory, cooldownSeconds = 30,
             { active: true, paymentStatus: 'unpaid', stripeSessionId: { $type: 'string' } },
             { paymentStatus: 'paid', paymentNoticeSent: { $ne: true } },
             { active: false, 'transcript.savedAt': { $exists: true }, receiptNoticeSent: { $ne: true } },
+            { panelMessageId: { $type: 'string' } },
             { active: true, channelId: null, createdAt: { $lte: new Date(now.getTime() - 600000) } }
         ] }).sort({ updatedAt: 1 }).limit(100).toArray();
     }
 
-    return { initialize, ensureLedger, openOrder, get, byChannel, patch, setProduct, couponsFor, reserveCoupon, releaseCoupon,
-        beginCheckout, attachCheckout, checkoutFailed, clearCheckout, markPaid, claim, delivered, reportIssue, deliverStock,
+    return { initialize, ensureLedger, openOrder, get, byChannel, getDeliveryChannelId, saveDeliveryChannelId, patch, setProduct, couponsFor, reserveCoupon, releaseCoupon,
+        beginCheckout, attachCheckout, checkoutFailed, clearCheckout, markPaid, claim, delivered, reportIssue, setRating, deliverStock,
         beginClose, finalizeClose, abandonCreation, listOrders, recoveryOrders, parts, transaction };
 }
 

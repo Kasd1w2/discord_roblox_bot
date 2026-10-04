@@ -7,11 +7,40 @@ const money = cents => cents == null ? 'Awaiting quote' : `$${(cents / 100).toFi
 const safeText = value => String(value ?? '').replace(/[`*_~|<>]/g, '').slice(0, 180);
 const COMMANDS = [
     { name: 'my-orders', description: 'View your saved orders and their progress', type: 1 },
-    { name: 'order', description: 'Staff: view or recover an order panel', type: 1,
+    { name: 'order', description: 'Staff: privately view an order summary', type: 1,
         options: [{ name: 'order_id', description: 'Order ID (defaults to the current ticket)', type: 3, required: false }] },
+    { name: 'confirm-payment', description: 'Staff: confirm a manual payment for an order', type: 1,
+        options: [
+            { name: 'method', description: 'Payment method, for example Crypto or PayPal', type: 3, required: true },
+            { name: 'price', description: 'USD amount received (defaults to the saved order total)', type: 10, required: false, min_value: 0.01 },
+            { name: 'order_id', description: 'Order ID (defaults to the current ticket)', type: 3, required: false }
+        ] },
     { name: 'transcript', description: 'Download a saved order transcript', type: 1,
-        options: [{ name: 'order_id', description: 'The order ID shown in /my-orders', type: 3, required: true }] }
+        options: [{ name: 'order_id', description: 'The order ID shown in /my-orders', type: 3, required: true }] },
+    { name: 'rate-order', description: 'Rate your delivered order from 1 to 5 stars', type: 1,
+        options: [
+            { name: 'stars', description: 'Your rating from 1 to 5', type: 4, required: true, min_value: 1, max_value: 5 },
+            { name: 'order_id', description: 'Order ID (required after the ticket closes)', type: 3, required: false }
+        ] }
 ];
+
+function completedReceipt(order) {
+    const rating = Number.isInteger(order.starRating) && order.starRating >= 1 && order.starRating <= 5 ?
+        `${'★'.repeat(order.starRating)}${'☆'.repeat(5 - order.starRating)} (${order.starRating}/5)` : 'Not rated';
+    const rawProduct = order.productName || order.productKey;
+    const product = /^(?:toy[_ -]?codes?)$/i.test(rawProduct) ? 'Toy Code' : safeText(rawProduct);
+    const method = safeText(order.paymentMethod || 'Unknown');
+    const paymentEmoji = /crypto|eth|ltc|btc|sol/i.test(method) ? '<:crypto:1554263320997920799>' :
+        /stripe|card/i.test(method) ? '<:stripe:1554263177829687398>' : '<:dots:1555973916944637952>';
+    return new EmbedBuilder().setTitle(process.env.LIVE_DELIVERIES_TITLE || 'Stocked | New Completed Order!').setColor(0x2B2D31)
+        .addFields(
+            { name: 'Star Rating', value: `\`${rating}\`` },
+            { name: 'Product Purchased', value: `${product === 'Toy Code' ? '🍂' : '🎁'} \`${product}\`` },
+            { name: 'USD Spent', value: `\`$${((order.paidCents || 0) / 100).toFixed(2)}\`` },
+            { name: 'Payment Method', value: `${paymentEmoji} \`${method}\`` },
+            { name: 'Order Id', value: `\`${order.orderId}\`` }
+        );
+}
 
 function isStaff(interaction, roleId) {
     const roles = interaction.member?.roles;
@@ -55,7 +84,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
         return order;
     }
 
-    function panelEmbed(order) {
+    function orderSummary(order) {
         return new EmbedBuilder().setTitle(`Order ${order.orderId}`).setColor(order.paymentStatus === 'paid' ? 0x57F287 : 0x5865F2)
             .setDescription(`**${safeText(order.productName || formatProductName(order.productKey))}**` +
                 (order.selectedAccount ? `\nRequested account: @${safeText(order.selectedAccount)}` : ''))
@@ -64,27 +93,12 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
                 { name: 'Status', value: order.closing ? 'Archiving transcript' : safeText(order.status.replace(/_/g, ' ')), inline: true },
                 { name: 'Total', value: money(order.paidCents ?? order.totalCents), inline: true },
                 { name: 'Payment', value: order.paymentStatus === 'paid' ? `Confirmed • ${safeText(order.paymentMethod)}` : 'Awaiting payment', inline: true },
-                { name: 'Staff', value: order.claimedBy ? `<@${order.claimedBy}>` : 'Unclaimed', inline: true },
                 { name: 'Coupon', value: order.coupon ? `${order.coupon.discountPct}% reserved until <t:${Math.floor(order.coupon.expiresAt / 1000)}:t>` : order.couponConsumed ? 'Applied to payment' : 'None', inline: true }
-            ).setFooter({ text: 'Staff controls • Your order remains saved after this ticket closes.' }).setTimestamp(order.createdAt);
-    }
-
-    function panelRows(order) {
-        const disabled = !order.active || order.closing;
-        const make = (action, label, style, off = false) => new ButtonBuilder().setCustomId(`staff_order|${action}|${order.orderId}`)
-            .setLabel(label).setStyle(style).setDisabled(disabled || off);
-        return [new ActionRowBuilder().addComponents(
-            make('claim', order.claimedBy ? 'Claimed' : 'Claim Order', ButtonStyle.Secondary, Boolean(order.claimedBy)),
-            make('paid', 'Confirm Payment', ButtonStyle.Success, order.paymentStatus === 'paid'),
-            make('delivered', 'Mark Delivered', ButtonStyle.Primary, order.paymentStatus !== 'paid' || order.fulfillmentStatus === 'delivered'),
-            make('issue', 'Report Issue', ButtonStyle.Secondary), make('close', 'Close Ticket', ButtonStyle.Danger)
-        )];
+            ).setTimestamp(order.createdAt);
     }
 
     function buyerRow(order) {
         return new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`buyer_order|issue|${order.orderId}`).setLabel('Report Issue').setStyle(ButtonStyle.Secondary)
-                .setDisabled(!order.active || order.closing),
             new ButtonBuilder().setCustomId(`buyer_order|cancel|${order.orderId}`).setLabel('Cancel Order').setStyle(ButtonStyle.Danger)
                 .setEmoji('<:trashcan:1554593006596657262>').setDisabled(!order.active || order.closing || order.paymentStatus === 'paid')
         );
@@ -96,20 +110,17 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
         catch (error) { if (error.code === 10003) return null; throw error; }
     }
 
-    async function refreshPanel(order) {
+    async function retireStaffPanel(order) {
+        if (!order.panelMessageId) return;
         const channel = await fetchChannel(order);
-        if (!channel) return;
-        let panel;
-        if (order.panelMessageId) {
-            try { panel = await channel.messages.fetch(order.panelMessageId); }
-            catch (error) { if (error.code !== 10008) throw error; }
+        if (channel) {
+            try {
+                const panel = await channel.messages.fetch(order.panelMessageId);
+                await panel.edit({ content: `Order **${order.orderId}** — ${safeText(order.productName)}.\nFor help, send a message in this ticket.`,
+                    embeds: [], components: [], allowedMentions: { parse: [] } });
+            } catch (error) { if (error.code !== 10008) throw error; }
         }
-        const payload = { embeds: [panelEmbed(order)], components: [...panelRows(order), buyerRow(order)], allowedMentions: { parse: [] } };
-        if (panel) await panel.edit(payload);
-        else {
-            panel = await channel.send(payload);
-            await store.patch(order.orderId, { panelMessageId: panel.id });
-        }
+        await store.patch(order.orderId, { panelMessageId: null, claimedBy: null });
     }
 
     function checkoutPayload(order, coupons = []) {
@@ -172,29 +183,32 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             const saved = await store.patch(order.orderId, { channelId: channel.id });
             await channel.send({ content: `<@${order.buyerId}> | <@&${adminRoleId}>\nYour order ID is **${order.orderId}**.`,
                 allowedMentions: { users: [order.buyerId], roles: [adminRoleId] } });
-            await refreshPanel(saved);
             if (input.kind === 'boost' || input.kind === 'decoration') {
                 const choices = input.kind === 'boost' ? boostPackages.map(([key, label]) => ({ label, value: key, emoji: '<a:boostlogo:1554263092244906005>' })) :
                     decoPackages.map(pkg => ({ label: `$${pkg.shopPrice} Shop Tier → $${pkg.price}`, value: `deco_${pkg.shopPrice}`, emoji: '<:price:1554267169800585227>' }));
                 const menu = new StringSelectMenuBuilder().setCustomId(`${input.kind === 'boost' ? 'select_boost_package' : 'select_deco_package'}|${order.orderId}`)
                     .setPlaceholder('Select your package...').addOptions(choices);
-                const message = await channel.send({ content: 'Select the package you want below.',
-                    components: [new ActionRowBuilder().addComponents(menu)], allowedMentions: { parse: [] } });
+                const welcome = new EmbedBuilder().setTitle(input.kind === 'boost' ? 'Server Boost Purchase' : 'Decoration Purchase')
+                    .setDescription(input.kind === 'boost' ? 'Select the package you want below. Staff will help with payment and delivery.' :
+                        'Select the shop price matching your decoration, then send its name or shop link in this ticket.')
+                    .setColor(0xff73fa).setFooter({ text: `Order ${order.orderId}` });
+                const message = await channel.send({ embeds: [welcome],
+                    components: [new ActionRowBuilder().addComponents(menu), buyerRow(saved)], allowedMentions: { parse: [] } });
                 await store.patch(order.orderId, { checkoutMessageId: message.id });
             } else if (input.baseCents) await renderCheckout(saved);
-            else await channel.send('Staff will confirm your item and quote a price before payment.');
+            else await channel.send({ content: 'Staff will confirm your item and quote a price before payment.', components: [buyerRow(saved)] });
             await interaction.editReply({ content: `✅ Order **${order.orderId}** created: <#${channel.id}>` });
         } catch (error) {
-            // Preserve a partly created ticket so staff can recover it with /order.
+            // Preserve a partly created ticket and its saved order for staff support.
             if (!channel) await store.abandonCreation(order.orderId);
-            else console.error(`Order ${order.orderId} needs panel recovery in channel ${channel.id}:`, error);
+            else console.error(`Order ${order.orderId} needs staff assistance in channel ${channel.id}:`, error);
             throw error;
         }
     }
 
     async function notifyPaid(result) {
         const order = result.order;
-        if (order.paymentNoticeSent) { await refreshPanel(order); return; }
+        if (order.paymentNoticeSent) { await retireStaffPanel(order); return; }
         const text = `<a:confirm:1554592986334105620> **Payment confirmed — ${order.orderId}**\n` +
             `<@${order.buyerId}> paid **${money(order.paidCents)}** using **${safeText(order.paymentMethod)}**.\n` +
             `<a:MTF_Credits:1554593086544412803> Earned **${order.pointsEarned} points**.\n` +
@@ -205,7 +219,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             // restarts after Discord accepted the message but before MongoDB saved it.
             await channel.send({ content: text, allowedMentions: { users: [order.buyerId], roles: [adminRoleId] },
                 nonce: order.orderId.replace('ORD-', ''), enforceNonce: true });
-            await refreshPanel(order);
+            await retireStaffPanel(order);
             if (order.checkoutMessageId) {
                 try { await (await channel.messages.fetch(order.checkoutMessageId)).edit({ components: [], content: 'Payment confirmed. Staff will deliver your order.' }); }
                 catch (error) { if (error.code !== 10008) throw error; }
@@ -282,7 +296,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
         const pay = new ButtonBuilder().setLabel(`Pay ${money(checkout.amount_total)}`).setURL(checkout.url).setStyle(ButtonStyle.Link);
         const expire = new ButtonBuilder().setCustomId(`expire_checkout|${order.orderId}`).setLabel('Change Payment Method').setStyle(ButtonStyle.Secondary);
         await interaction.editReply({ content: null, embeds: [embed], components: [new ActionRowBuilder().addComponents(pay, expire), buyerRow(order)] });
-        await refreshPanel(order);
+        await retireStaffPanel(order);
     }
 
     function input(id, label, value = '', style = TextInputStyle.Short) {
@@ -314,7 +328,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             return { snapshotId, savedAt: new Date(), messageCount, partCount: part,
                 channelMissing: !channel, receipt: { orderId: order.orderId, product: order.productName, buyerId: order.buyerId,
                     paidCents: order.paidCents || 0, paymentMethod: order.paymentMethod || 'Unpaid', points: order.pointsEarned || 0,
-                    claimedBy: order.claimedBy, status: order.closeFinalStatus, reason: order.closeReason } };
+                    status: order.closeFinalStatus, reason: order.closeReason, starRating: order.starRating || null } };
         } catch (error) {
             await store.parts().deleteMany({ orderId: order.orderId, snapshotId });
             throw error;
@@ -327,7 +341,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             if (!order.closing) throw new OrderError('Closure has not been requested.');
             if (channel) {
                 await channel.permissionOverwrites.edit(order.buyerId, { SendMessages: false });
-                await refreshPanel(order);
+                await retireStaffPanel(order);
             }
             const transcript = await saveTranscript(order, channel);
             order = await store.finalizeClose(order.orderId, transcript);
@@ -338,17 +352,51 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             catch (error) { if (error.code !== 10003) throw error; }
         }
         order = await store.patch(order.orderId, { channelDeleted: true });
-        if (!order.receiptNoticeSent) {
-            const logId = process.env.ORDER_LOG_CHANNEL_ID || '1542337221791711324';
-            const log = await botClient.channels.fetch(logId).catch(() => null);
-            if (log?.isTextBased()) {
-                await log.send({ embeds: [new EmbedBuilder().setTitle(`Order archived • ${order.orderId}`).setColor(0x5865F2)
-                    .setDescription(`Product: **${safeText(order.productName)}**\nStatus: **${order.status}**\nPayment: **${money(order.paidCents || 0)}**\n` +
-                        `Method: **${safeText(order.paymentMethod || 'Unpaid')}**\nTranscript: **${order.transcript.messageCount} messages**\n` +
-                        'Buyer and staff can retrieve the transcript with `/transcript`.')], allowedMentions: { parse: [] } });
-                await store.patch(order.orderId, { receiptNoticeSent: true });
-            }
+        await publishCompletedReceipt(order);
+    }
+
+    async function liveDeliveriesChannel(order) {
+        const channelId = process.env.LIVE_DELIVERIES_CHANNEL_ID || process.env.ORDER_LOG_CHANNEL_ID;
+        if (channelId) {
+            const channel = await botClient.channels.fetch(channelId);
+            if (!channel?.isTextBased() || channel.guildId !== order.guildId) throw new Error('The live-deliveries channel must be a text channel in the order server.');
+            await store.saveDeliveryChannelId(order.guildId, channel.id);
+            return channel;
         }
+        const savedId = await store.getDeliveryChannelId(order.guildId);
+        if (savedId) {
+            let savedChannel;
+            try { savedChannel = await botClient.channels.fetch(savedId); }
+            catch (error) { if (error.code !== 10003) throw error; }
+            if (savedChannel?.isTextBased() && savedChannel.guildId === order.guildId) return savedChannel;
+            await store.saveDeliveryChannelId(order.guildId, null);
+        }
+        const guild = await botClient.guilds.fetch(order.guildId);
+        const channels = await guild.channels.fetch();
+        const matches = [...channels.values()].filter(channel => channel?.name === 'live-deliveries' && channel.isTextBased());
+        if (matches.length !== 1) throw new Error('Set LIVE_DELIVERIES_CHANNEL_ID to select the #live-deliveries channel.');
+        await store.saveDeliveryChannelId(order.guildId, matches[0].id);
+        return matches[0];
+    }
+
+    async function publishCompletedReceipt(order) {
+        if (order.receiptNoticeSent) return;
+        if (order.status !== 'closed' || order.paymentStatus !== 'paid' || order.fulfillmentStatus !== 'delivered') {
+            await store.patch(order.orderId, { receiptNoticeSent: true, receiptSkipped: true });
+            return;
+        }
+        const log = await liveDeliveriesChannel(order);
+        const sent = await log.send({ embeds: [completedReceipt(order)], allowedMentions: { parse: [] },
+            nonce: `${order.orderId}-receipt`, enforceNonce: true });
+        await store.patch(order.orderId, { receiptNoticeSent: true, receiptMessageId: sent.id, receiptChannelId: log.id });
+    }
+
+    async function refreshRatingReceipt(order) {
+        if (!order.receiptMessageId || !order.receiptChannelId) return;
+        const channel = await botClient.channels.fetch(order.receiptChannelId);
+        if (!channel || channel.guildId !== order.guildId) throw new Error('Saved receipt channel does not match this order server.');
+        const message = await channel.messages.fetch(order.receiptMessageId);
+        await message.edit({ embeds: [completedReceipt(order)], allowedMentions: { parse: [] } });
     }
 
     async function closeTicket(order, actorId, buyerCancel = false, reason = 'Closed by staff', expired = false) {
@@ -406,7 +454,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
     async function handleInteraction(interaction) {
         const cmd = interaction.isChatInputCommand() ? interaction.commandName : null;
         const id = interaction.customId || '';
-        const supportedCommands = ['my-orders', 'order', 'transcript', 'deliver', 'close'];
+        const supportedCommands = ['my-orders', 'order', 'transcript', 'rate-order', 'confirm-payment', 'deliver', 'close'];
         const prefixes = ['purchase_action|', 'use_coupon_yes|', 'use_coupon_no|', 'open_tx_modal|', 'create_user_ticket|',
             'select_stock_user|', 'apply_coupon|', 'payment_select|', 'submit_tx_form|', 'staff_order|', 'buyer_order|',
             'staff_pay|', 'order_issue|', 'orders_page|', 'expire_checkout|', 'select_boost_package|', 'select_deco_package|'];
@@ -417,14 +465,34 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
         if (cmd) {
             await interaction.deferReply({ flags: 64 });
             if (cmd === 'my-orders') await history(interaction);
+            else if (cmd === 'rate-order') {
+                const value = interaction.options.getString('order_id');
+                const order = await orderFor(interaction, value?.toUpperCase(), { buyerOnly: true, anyChannel: Boolean(value) });
+                const saved = await store.setRating(order.orderId, interaction.user.id, interaction.options.getInteger('stars'));
+                await refreshRatingReceipt(saved);
+                await interaction.editReply({ content: `⭐ Your **${saved.starRating}/5** rating for **${order.orderId}** was saved.` });
+            }
             else if (cmd === 'transcript') {
                 const order = await orderFor(interaction, interaction.options.getString('order_id').toUpperCase(), { anyChannel: true });
                 await downloadTranscript(interaction, order);
             } else if (cmd === 'order') {
                 const value = interaction.options.getString('order_id');
                 const order = await orderFor(interaction, value?.toUpperCase(), { staffOnly: true, anyChannel: Boolean(value) });
-                await refreshPanel(order);
-                await interaction.editReply({ embeds: [panelEmbed(order)], content: order.channelId ? `Ticket: <#${order.channelId}>` : 'Ticket is unavailable.' });
+                await retireStaffPanel(order);
+                await interaction.editReply({ embeds: [orderSummary(order)], content: order.channelId ? `Ticket: <#${order.channelId}>` : 'Ticket is unavailable.' });
+            } else if (cmd === 'confirm-payment') {
+                const value = interaction.options.getString('order_id');
+                let order = await orderFor(interaction, value?.toUpperCase(), { staffOnly: true, anyChannel: Boolean(value) });
+                requireOpen(order);
+                const price = interaction.options.getNumber('price');
+                const amountCents = price == null ? order.totalCents : toCents(price);
+                if (!amountCents) throw new OrderError('Provide the USD amount received using the price option.');
+                const method = interaction.options.getString('method')?.trim().slice(0, 100);
+                if (!method) throw new OrderError('Provide the payment method.');
+                order = await reconcileCheckout(order, true);
+                const result = await store.markPaid(order.orderId, { amountCents, method, actorId: interaction.user.id });
+                await notifyPaid(result);
+                await interaction.editReply({ content: result.newlyPaid ? '✅ Payment recorded and points awarded once.' : 'This order was already paid; no extra points were awarded.' });
             } else if (cmd === 'deliver') {
                 let order = await orderFor(interaction, null, { staffOnly: true });
                 if (interaction.options.getUser('buyer')?.id !== order.buyerId) throw new OrderError('The delivery buyer must match the saved order.');
@@ -432,7 +500,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
                 if (itemId !== order.productKey) throw new OrderError('The delivery item must match the saved order.');
                 if (order.paymentStatus !== 'paid') {
                     const price = interaction.options.getNumber('price');
-                    if (!price) throw new OrderError('Confirm payment with the staff panel first, or provide the paid price.');
+                    if (!price) throw new OrderError('Use /confirm-payment first, or provide the paid price.');
                     order = await reconcileCheckout(order, true);
                     const result = await store.markPaid(order.orderId, { amountCents: toCents(price), method: 'Manual', actorId: interaction.user.id });
                     await notifyPaid(result);
@@ -445,7 +513,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
                     embeds: [new EmbedBuilder().setTitle('<a:Delivery:1554592662013739109> Order Delivery')
                         .setDescription(`Code for **${safeText(itemId)}**:\n\`\`\`${displayed.replace(/`/g, '')}\`\`\``).setColor(0x57F287)],
                     allowedMentions: { users: [order.buyerId], roles: [] } });
-                await refreshPanel(delivery.order);
+                await retireStaffPanel(delivery.order);
                 await interaction.editReply({ content: '✅ Delivery recorded. Points were awarded once at payment confirmation.' });
             } else if (cmd === 'close') {
                 let order = await orderFor(interaction, null, { staffOnly: true });
@@ -516,33 +584,10 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
         }
 
         if (interaction.isButton() && id.startsWith('staff_order|')) {
-            const [, action, orderId] = id.split('|');
-            const order = await orderFor(interaction, orderId, { staffOnly: true });
-            requireOpen(order);
-            if (action === 'paid') {
-                if (order.paymentStatus === 'paid') throw new OrderError('This order is already paid.');
-                const modal = new ModalBuilder().setCustomId(`staff_pay|${orderId}`).setTitle('Confirm Payment');
-                modal.addComponents(input('paid_amount', 'Amount received (USD)', order.totalCents ? (order.totalCents / 100).toFixed(2) : ''),
-                    input('paid_method', 'Payment method', order.paymentMethod || 'Other'));
-                await interaction.showModal(modal);
-            } else if (action === 'issue') await issueModal(interaction, order);
-            else {
-                await interaction.deferReply({ flags: 64 });
-                if (action === 'claim') {
-                    const saved = await store.claim(orderId, interaction.user.id);
-                    await refreshPanel(saved);
-                    await interaction.editReply({ content: `✅ You claimed **${orderId}**.` });
-                } else if (action === 'delivered') {
-                    const saved = await store.delivered(orderId, interaction.user.id);
-                    await refreshPanel(saved);
-                    await interaction.channel.send({ content: `✅ **${orderId}** marked delivered by <@${interaction.user.id}>.`, allowedMentions: { parse: [] } });
-                    await interaction.editReply({ content: 'Delivery recorded.' });
-                } else if (action === 'close') {
-                    if (order.paymentStatus === 'paid' && order.fulfillmentStatus !== 'delivered') throw new OrderError('Mark this paid order delivered before closing it.');
-                    await interaction.editReply({ content: `Saving the transcript for **${orderId}**, then closing…` });
-                    await closeTicket(order, interaction.user.id);
-                } else throw new OrderError('Unknown staff control.');
-            }
+            await interaction.deferReply({ flags: 64 });
+            const order = await orderFor(interaction, id.split('|')[2], { staffOnly: true });
+            await retireStaffPanel(order);
+            await interaction.editReply({ content: 'The staff panel has been removed. Use /confirm-payment, /deliver, or /close.' });
             return true;
         }
         if (interaction.isButton() && (id.startsWith('buyer_order|') || id === 'close_order')) {
@@ -559,13 +604,9 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
         }
         if (interaction.isModalSubmit() && id.startsWith('staff_pay|')) {
             await interaction.deferReply({ flags: 64 });
-            let order = await orderFor(interaction, id.split('|')[1], { staffOnly: true });
-            requireOpen(order);
-            order = await reconcileCheckout(order, true);
-            const result = await store.markPaid(order.orderId, { amountCents: toCents(interaction.fields.getTextInputValue('paid_amount')),
-                method: interaction.fields.getTextInputValue('paid_method').trim().slice(0, 100), actorId: interaction.user.id });
-            await notifyPaid(result);
-            await interaction.editReply({ content: result.newlyPaid ? '✅ Payment recorded and points awarded once.' : 'This order was already paid; no extra points were awarded.' });
+            const order = await orderFor(interaction, id.split('|')[1], { staffOnly: true });
+            await retireStaffPanel(order);
+            await interaction.editReply({ content: 'The staff panel has been removed. Confirm manual payments with /confirm-payment.' });
             return true;
         }
         if (interaction.isModalSubmit() && id.startsWith('order_issue|')) {
@@ -574,7 +615,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             const reason = interaction.fields.getTextInputValue('issue_reason').trim();
             if (!reason) throw new OrderError('Describe the issue first.');
             const saved = await store.reportIssue(order.orderId, interaction.user.id, reason);
-            await refreshPanel(saved);
+            await retireStaffPanel(saved);
             await interaction.channel.send({ content: `⚠️ **Issue reported — ${order.orderId}**\n<@&${adminRoleId}>\n${reason}`,
                 allowedMentions: { roles: [adminRoleId], users: [] } });
             await interaction.editReply({ content: 'Your issue was saved and staff notified.' });
@@ -598,7 +639,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             } else throw new OrderError('This ticket does not accept package selection.');
             const saved = await store.setProduct(order.orderId, key, productName, baseCents);
             await renderCheckout(saved, interaction);
-            await refreshPanel(saved);
+            await retireStaffPanel(saved);
             return true;
         }
         if (interaction.isButton() && id.startsWith('use_coupon_yes|')) {
@@ -620,7 +661,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             await interaction.deferUpdate();
             const order = await orderFor(interaction, id.split('|')[1], { buyerOnly: true });
             const saved = await store.releaseCoupon(order.orderId);
-            await renderCheckout(saved, interaction); await refreshPanel(saved);
+            await renderCheckout(saved, interaction); await retireStaffPanel(saved);
             return true;
         }
         if (interaction.isStringSelectMenu() && id.startsWith('apply_coupon|')) {
@@ -628,7 +669,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             await interaction.deferUpdate();
             const order = await orderFor(interaction, id.split('|')[1], { buyerOnly: true });
             const saved = await store.reserveCoupon(order.orderId, Number(interaction.values[0]));
-            await renderCheckout(saved, interaction); await refreshPanel(saved);
+            await renderCheckout(saved, interaction); await retireStaffPanel(saved);
             return true;
         }
         if (interaction.isButton() && id.startsWith('expire_checkout|')) {
@@ -637,7 +678,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             let order = await orderFor(interaction, id.split('|')[1], { buyerOnly: true });
             order = await reconcileCheckout(order, true);
             if (order.paymentStatus === 'paid') throw new OrderError('Payment has already been confirmed.');
-            await renderCheckout(order, interaction); await refreshPanel(order);
+            await renderCheckout(order, interaction); await retireStaffPanel(order);
             return true;
         }
         if (interaction.isStringSelectMenu() && id.startsWith('payment_select|')) {
@@ -669,7 +710,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
                         .setDescription(`Order **${order.orderId}** • **${money(order.totalCents)}**\nTell staff what you would like to pay with (PayPal, Limiteds, or another method).\nStaff confirms payment before delivery.`)],
                         components: [buyerRow(order)] });
                 }
-                await refreshPanel(order);
+                await retireStaffPanel(order);
             } else throw new OrderError('Invalid payment method.');
             return true;
         }
@@ -714,7 +755,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             await notifyPaid(result);
         } else if (event.type === 'checkout.session.expired' && order.stripeSessionId === checkout.id && order.paymentStatus !== 'paid' && order.active && !order.closing) {
             const saved = await reconcileCheckout(order);
-            if (!saved.stripeSessionId) { await renderCheckout(saved); await refreshPanel(saved); }
+            if (!saved.stripeSessionId) { await renderCheckout(saved); await retireStaffPanel(saved); }
         }
         return true;
     }
@@ -725,12 +766,16 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
         try {
             for (let order of await store.recoveryOrders()) {
                 try {
+                    if (order.panelMessageId) {
+                        await retireStaffPanel(order);
+                        order = await store.get(order.orderId);
+                    }
                     if (!order.channelId && order.createdAt < new Date(Date.now() - 600000)) { await store.abandonCreation(order.orderId); continue; }
                     if (order.closing || !order.active && (!order.channelDeleted || order.transcript && !order.receiptNoticeSent)) { await archiveAndDelete(order); continue; }
                     const oldSessionId = order.stripeSessionId;
                     if (order.stripeSessionId) order = await reconcileCheckout(order);
                     if (oldSessionId && !order.stripeSessionId && order.paymentStatus !== 'paid') {
-                        await renderCheckout(order); await refreshPanel(order);
+                        await renderCheckout(order); await retireStaffPanel(order);
                     }
                     if (order.paymentStatus === 'paid') { if (!order.paymentNoticeSent) await notifyPaid({ order }); continue; }
                     if (order.expiresAt <= new Date()) {
@@ -739,7 +784,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
                         order = await reconcileCheckout(order, true);
                         if (order.paymentStatus !== 'paid') {
                             if (order.coupon) order = await store.releaseCoupon(order.orderId);
-                            await renderCheckout(order); await refreshPanel(order);
+                            await renderCheckout(order); await retireStaffPanel(order);
                         }
                     }
                 } catch (error) { console.error(`Order recovery failed (${order.orderId}):`, error); }
@@ -754,14 +799,22 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
         if (user.id !== order.buyerId || !order.active || order.closing) return true;
         // Buyer reactions are feedback; only staff can change delivery/payment status.
         const content = reaction.emoji.id === '1554592986334105620' ? `✅ <@${user.id}> confirmed receipt for **${order.orderId}**.` :
-            `⚠️ <@&${adminRoleId}> <@${user.id}> reported a delivery issue for **${order.orderId}**. Use Report Issue to save details.`;
+            `⚠️ <@&${adminRoleId}> <@${user.id}> reported a delivery issue for **${order.orderId}**. Send a message in this ticket so staff can assist.`;
         await reaction.message.channel.send({ content, allowedMentions: { users: [user.id], roles: [adminRoleId] } });
         return true;
     }
 
     function startRecovery() {
         if (recoveryTimer) return;
-        recover().catch(error => console.error('Initial order recovery failed:', error));
+        (async () => {
+            // Pin receipt destinations on startup so later channel renames work,
+            // including before the first completed sale and across restarts.
+            for (const guild of botClient.guilds.cache?.values() || []) {
+                try { await liveDeliveriesChannel({ guildId: guild.id }); }
+                catch (error) { console.error(`Receipt channel setup failed (${guild.id}):`, error.message); }
+            }
+            await recover();
+        })().catch(error => console.error('Initial order recovery failed:', error));
         recoveryTimer = setInterval(() => recover().catch(error => console.error('Order recovery failed:', error)), 60000);
         recoveryTimer.unref?.();
     }
@@ -770,4 +823,4 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
         store, saveTranscript, archiveAndDelete, reconcileCheckout, closeTicket };
 }
 
-module.exports = { createOrderRuntime, isStaff, assertAuthorized, money, COMMANDS };
+module.exports = { createOrderRuntime, isStaff, assertAuthorized, money, completedReceipt, COMMANDS };

@@ -21,7 +21,7 @@ function createAccountCatalog({ Inventory, store }) {
             .setDescription(`# ${EMOJIS.user} ${String(title).slice(0, 256)}\n\n` +
                 'Browse available usernames and USD prices. Choose a tier below, then a category.\n\n' +
                 `${EMOJIS.price} Accounts are sorted from lowest to highest price.\n${EMOJIS.shop} Select a username to open its purchase ticket.\n` +
-                `${EMOJIS.user} Login details are provided privately after payment and delivery.\n${EMOJIS.confirm} Accounts include a 7-day warranty from delivery.\n\n` +
+                `${EMOJIS.user} Login details are provided privately after payment and delivery.\n${EMOJIS.confirm} Accounts include a 7-day warranty from delivery. All accounts are unverified with no claimed billing unless stated otherwise.\n\n` +
                 `${EMOJIS.terms} Read our shop terms in <#1555338590064746576> before ordering.`)],
             components: [new ActionRowBuilder().addComponents(tiersMenu('account_tier'))], allowedMentions: { parse: [] } };
     }

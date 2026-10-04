@@ -697,4 +697,3 @@ setInterval(async () => {
     console.error("Self-ping failed:", error.message);
   }
 }, 10 * 60 * 1000); // <-- Ensure this comma exists!
-g

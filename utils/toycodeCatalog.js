@@ -2,7 +2,7 @@ const { randomBytes } = require('node:crypto');
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder,
     ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const { OrderError } = require('./orderStore');
-const { TOYCODE_EMOJI, TOYCODE_COLOR, resolveToycodeImage } = require('./toycodeImages');
+const { TOYCODE_EMOJI, TOYCODE_COLOR, resolveToycodeImage, savedToycodeImage } = require('./toycodeImages');
 
 const PAGE_SIZE = 5;
 const SESSION_MS = 30 * 60000;
@@ -147,8 +147,14 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
             .setImage(`attachment://${file.name}`)], files: [file], allowedMentions: { parse: [] } });
         let result;
         try {
-            const image = [...imagePost.attachments.values()].find(attachment => attachment.name === file.name);
-            if (!image) throw new OrderError('Discord did not save the image attachment. Try restocking again.');
+            let image = savedToycodeImage(imagePost, { filename: file.name });
+            if (!image) {
+                let savedPost;
+                try { savedPost = await target.messages.fetch({ message: imagePost.id, force: true }); }
+                catch { throw new OrderError('The image uploaded, but the bot could not read it back. Give it View Channel and Read Message History in this channel, then retry.'); }
+                image = savedToycodeImage(savedPost, { filename: file.name });
+            }
+            if (!image) throw new OrderError('The uploaded image could not be resolved. Use a fresh direct image link and try again.');
             const codes = (interaction.options.getString('codes') || '').split(/[\r\n,]+|\s+/).map(code => code.trim()).filter(Boolean);
             result = await store.saveToycode({ ...input, imageChannelId: target.id,
                 imageMessageId: imagePost.id, imageAttachmentId: image.id }, codes);

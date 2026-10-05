@@ -16,4 +16,16 @@ function shopTerms() {
         );
 }
 
-module.exports = { shopTerms };
+function paymentMethods() {
+    return new EmbedBuilder().setColor(0x635BFF)
+        .setDescription('# <:stripe:1554263177829687398> Stocked | Payment Methods\n\n' +
+            '<a:important:1554267188272308248> Use the checkout or payment details provided in your order ticket.')
+        .addFields(
+            { name: '<:stripe:1554263177829687398> Stripe', value: '**5% fee**\nPay by card through the Stripe checkout.' },
+            { name: '<:crypto:1554263320997920799> Crypto', value: '**0% fee**\nUse the wallet and amount provided in your ticket.' },
+            { name: '<a:Cash_3D:1554592754875768902> PayPal FNF', value: '**5% fee**\nPayPal Friends & Family. Ask staff for the payment details.' },
+            { name: '<a:box:1554592797733163099> Limiteds', value: '**Accepted**\nAgree on the item and its value with staff in your order ticket.' }
+        );
+}
+
+module.exports = { shopTerms, paymentMethods };

@@ -4,14 +4,14 @@ const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelect
 const { createOrderStore, OrderError, toCents, requireOpen } = require('./orderStore');
 const { publicMessage } = require('./messageStyle');
 const { accountListings, parseAccountEntry, normalizeAccountCategory } = require('./accounts');
-const { shopTerms } = require('./shopTerms');
+const { shopTerms, paymentMethods } = require('./shopTerms');
 
 const money = cents => cents == null ? 'Awaiting quote' : `$${(cents / 100).toFixed(2)} USD`;
 const safeText = value => String(value ?? '').replace(/[`*_~|<>]/g, '').slice(0, 180);
 const orderColor = order => order.kind === 'boost' ? 0xFF73FA : order.kind === 'decoration' ? 0xA855F7 :
     order.kind === 'account' ? 0xF1F5F9 : 0x14B8A6;
 const COMMANDS = [
-    { name: 'terms', description: 'Staff: post the shop terms and warranty policy in this channel', type: 1 },
+    { name: 'terms', description: 'Staff: post the shop terms, warranty and payment methods in this channel', type: 1 },
     { name: 'my-orders', description: 'View your saved orders and their progress', type: 1 },
     { name: 'order', description: 'Staff: privately view an order summary', type: 1,
         options: [{ name: 'order_id', description: 'Order ID (defaults to the current ticket)', type: 3, required: false }] },
@@ -599,8 +599,8 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             await interaction.deferReply({ flags: 64 });
             if (cmd === 'terms') {
                 if (!isStaff(interaction, adminRoleId)) throw new OrderError('Only shop staff can post the terms.');
-                await interaction.channel.send({ embeds: [shopTerms()], allowedMentions: { parse: [] } });
-                await interaction.editReply({ content: '✅ Shop terms posted. All products have a 7-day warranty except boosts.' });
+                await interaction.channel.send({ embeds: [shopTerms(), paymentMethods()], allowedMentions: { parse: [] } });
+                await interaction.editReply({ content: '<a:confirm:1554592986334105620> Shop terms and payment methods posted. All products have a 7-day warranty except boosts.' });
             }
             else if (cmd === 'my-orders') await history(interaction);
             else if (cmd === 'rate-order') {

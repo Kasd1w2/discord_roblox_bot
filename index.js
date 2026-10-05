@@ -46,6 +46,7 @@ const { OrderError } = require('./utils/orderStore');
 const { publicMessage } = require('./utils/messageStyle');
 const { CATEGORY_NAMES, normalizeAccountCategory } = require('./utils/accounts');
 const { createAccountCatalog } = require('./utils/accountCatalog');
+const { createToycodeCatalog } = require('./utils/toycodeCatalog');
 
 const ADMIN_ROLE_ID = '1542306776622309437';
 
@@ -192,6 +193,8 @@ const orderRuntime = createOrderRuntime({
 });
 
 const accountCatalog = createAccountCatalog({ Inventory, store: orderRuntime.store });
+const toycodeCatalog = createToycodeCatalog({ store: orderRuntime.store, botClient, adminRoleId: ADMIN_ROLE_ID,
+    downloadImage: listingImage, createTicket: orderRuntime.createToycodeTicket });
 
 // --- STRIPE WEBHOOK ENDPOINT ---
 webApp.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
@@ -290,6 +293,7 @@ botClient.on('messageReactionAdd', async (reaction, user) => {
 async function handleInteraction(interaction) {
     if (await orderRuntime.handleInteraction(interaction)) return;
     if (await accountCatalog.handleInteraction(interaction)) return;
+    if (await toycodeCatalog.handleInteraction(interaction)) return;
 
     // 1. CHAT INPUT COMMANDS
     if (interaction.isChatInputCommand()) {
@@ -594,11 +598,24 @@ const boostRow = new ActionRowBuilder().addComponents(
 
         if (commandLabel === 'restock') {
             await interaction.deferReply({ flags: 64 });
-            const inputId = interaction.options.getString('item_id').trim();
+            const toyTitle = interaction.options.getString('title');
+            const toyPrice = interaction.options.getNumber('price');
+            const toyImage = interaction.options.getString('image_url');
+            if ([toyTitle, toyPrice, toyImage].some(value => value != null)) {
+                if (!toyTitle || toyPrice == null || !toyImage) {
+                    throw new OrderError('For toycode listings, provide all three: title, price, and image_url.');
+                }
+                await toycodeCatalog.restock(interaction);
+                return;
+            }
+            const inputId = interaction.options.getString('item_id')?.trim();
+            const rawInput = interaction.options.getString('codes');
+            if (!inputId || !rawInput?.trim()) {
+                throw new OrderError('For code/account stock, provide item_id and codes. For toycode listings, provide title, price and image_url.');
+            }
             const accountCategory = normalizeAccountCategory(inputId);
             const itemId = accountCategory || inputId;
             updateBotStatus(`📥 Restocking items for: ${itemId.toUpperCase()}`);
-            const rawInput = interaction.options.getString('codes');
             if (accountCategory) {
                 const result = await orderRuntime.store.restockAccounts(itemId, rawInput);
                 await interaction.editReply({ content: `✅ Added **${result.added} account(s)** to **${CATEGORY_NAMES[itemId]}**.\n📦 Total Stock: **${result.total}**` });

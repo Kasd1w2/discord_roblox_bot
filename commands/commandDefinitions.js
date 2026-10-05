@@ -34,9 +34,18 @@ module.exports = [
 
     new SlashCommandBuilder()
         .setName('restock')
-        .setDescription('Add stock codes or accounts to an item (Admin)')
-        .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID key').setRequired(true))
-        .addStringOption(opt => opt.setName('codes').setDescription('Paste user:password lines or comma-separated codes').setRequired(true)),
+        .setDescription('Add codes/accounts, or list a toycode with title, price and image (Admin)')
+        .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID; optional for toycode listings').setRequired(false))
+        .addStringOption(opt => opt.setName('codes').setDescription('Account lines or private codes; optional for toycode listings').setRequired(false))
+        .addStringOption(opt => opt.setName('title').setDescription('Toycode item title').setMaxLength(100).setRequired(false))
+        .addNumberOption(opt => opt.setName('price').setDescription('Toycode price in USD').setMinValue(0.01).setRequired(false))
+        .addStringOption(opt => opt.setName('image_url').setDescription('Direct toycode image link (PNG, JPG, GIF or WebP)').setMaxLength(2000).setRequired(false)),
+
+    new SlashCommandBuilder()
+        .setName('toycodes')
+        .setDescription('Post the searchable toycode shop with pictures and price filters (Admin)')
+        .addChannelOption(opt => opt.setName('channel').setDescription('Shop channel (defaults to this channel)').setRequired(false))
+        .addStringOption(opt => opt.setName('title').setDescription('Shop title').setMaxLength(100).setRequired(false)),
 
     new SlashCommandBuilder()
         .setName('stock')

@@ -1,4 +1,4 @@
-const { randomBytes } = require('node:crypto');
+const { randomBytes, createHash } = require('node:crypto');
 const { normalizeAccountCategory, parseAccountEntry, parseAccountRestock } = require('./accounts');
 
 class OrderError extends Error {
@@ -58,6 +58,7 @@ function createOrderStore({ connection, Ledger, Inventory, cooldownSeconds = 30,
     const parts = () => db().collection('shop_transcript_parts');
     const buyerLocks = () => db().collection('shop_buyer_locks');
     const settings = () => db().collection('shop_settings');
+    const toycodeItems = () => db().collection('shop_toycode_items');
     const ledger = () => Ledger.collection;
     const inventory = () => Inventory.collection;
 
@@ -95,6 +96,8 @@ function createOrderStore({ connection, Ledger, Inventory, cooldownSeconds = 30,
         });
         await orders().createIndex({ active: 1, expiresAt: 1 });
         await parts().createIndex({ orderId: 1, snapshotId: 1, part: 1 }, { unique: true });
+        await toycodeItems().createIndex({ guildId: 1, itemId: 1 }, { unique: true });
+        await toycodeItems().createIndex({ guildId: 1, active: 1, priceCents: 1 });
         // Cooldown rows can be discarded once their lock has elapsed.
         await gates().createIndex({ nextAllowedAt: 1 }, { expireAfterSeconds: 3600 });
     }
@@ -107,6 +110,18 @@ function createOrderStore({ connection, Ledger, Inventory, cooldownSeconds = 30,
         try {
             return await transaction(async session => {
                 const now = new Date();
+                if (input.kind === 'toycode') {
+                    await settings().updateOne({ _id: `toycode:${input.guildId}:${input.productKey}` },
+                        { $inc: { version: 1 } }, { upsert: true, session });
+                    const item = await toycodeItems().findOne({ guildId: input.guildId, itemId: input.productKey, active: true }, { session });
+                    if (!item || item.priceCents !== input.baseCents || item.title !== input.productName) {
+                        throw new OrderError('This item is no longer listed at that price. Go back and select it again.');
+                    }
+                    // Price, title and image come from the saved listing, never
+                    // from component IDs or a buyer-supplied quote.
+                    input = { ...input, productName: item.title, imageChannelId: item.imageChannelId,
+                        imageMessageId: item.imageMessageId, imageAttachmentId: item.imageAttachmentId };
+                }
                 if (input.kind === 'account' && input.selectedAccount) {
                     await settings().updateOne({ _id: `account-stock:${input.productKey}` }, { $inc: { version: 1 } }, { upsert: true, session });
                     const reserved = await orders().findOne({ productSlot, active: true }, { session });
@@ -148,6 +163,51 @@ function createOrderStore({ connection, Ledger, Inventory, cooldownSeconds = 30,
     }
 
     async function get(orderId) { return orders().findOne({ orderId }); }
+    async function getToycode(guildId, itemId) { return toycodeItems().findOne({ guildId, itemId, active: true }); }
+    async function listToycodes(guildId) { return toycodeItems().find({ guildId, active: true }).toArray(); }
+
+    function validateToycode(input) {
+        const title = String(input.title || '').trim().replace(/\s+/g, ' ');
+        if (!input.guildId || !title || title.length > 100 || /[\u0000-\u001f\u007f]/.test(title)) {
+            throw new OrderError('Enter a toycode title between 1 and 100 characters.');
+        }
+        const priceCents = toCents(input.price);
+        if (Math.abs(Number(input.price) * 100 - priceCents) > 0.00001) {
+            throw new OrderError('Use a positive USD price with no more than two decimal places.');
+        }
+        let image;
+        try { image = new URL(input.imageUrl); } catch { throw new OrderError('Use a direct, public image link for image_url.'); }
+        if (!['http:', 'https:'].includes(image.protocol) || image.username || image.password || image.href.length > 2000) {
+            throw new OrderError('Use a direct, public HTTP or HTTPS image link under 2000 characters.');
+        }
+        const itemId = input.itemId?.trim() || `toy_${createHash('sha256').update(`${input.guildId}\0${title.toLowerCase()}`).digest('hex').slice(0, 16)}`;
+        if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(itemId) || normalizeAccountCategory(itemId)) {
+            throw new OrderError('Use a stock ID with up to 64 letters, digits, underscores or hyphens, separate from account categories.');
+        }
+        return { guildId: input.guildId, itemId, title, priceCents, imageUrl: image.href };
+    }
+
+    async function saveToycode(input, codes = []) {
+        const item = validateToycode(input);
+        if (!input.imageChannelId || !input.imageMessageId || !input.imageAttachmentId) {
+            throw new OrderError('The toycode image must be uploaded before saving this listing.');
+        }
+        return transaction(async session => {
+            await settings().updateOne({ _id: `toycode:${item.guildId}:${item.itemId}` },
+                { $inc: { version: 1 } }, { upsert: true, session });
+            await toycodeItems().updateOne({ guildId: item.guildId, itemId: item.itemId }, {
+                $set: { ...item, active: true, imageChannelId: input.imageChannelId,
+                    imageMessageId: input.imageMessageId, imageAttachmentId: input.imageAttachmentId, updatedAt: new Date() },
+                $setOnInsert: { createdAt: new Date() }
+            }, { upsert: true, session });
+            if (codes.length) {
+                const stock = await inventory().findOne({ itemId: item.itemId }, { session });
+                await inventory().updateOne({ itemId: item.itemId },
+                    { $set: { codes: [...(stock?.codes || []), ...codes] } }, { upsert: true, session });
+            }
+            return { item: await toycodeItems().findOne({ guildId: item.guildId, itemId: item.itemId }, { session }), added: codes.length };
+        });
+    }
     async function byChannel(channelId) { return orders().findOne({ channelId }); }
     async function getDeliveryChannelId(guildId) {
         return (await settings().findOne({ _id: `live-deliveries:${guildId}` }))?.channelId || null;
@@ -466,7 +526,7 @@ function createOrderStore({ connection, Ledger, Inventory, cooldownSeconds = 30,
         ] }).sort({ updatedAt: 1 }).limit(100).toArray();
     }
 
-    return { initialize, ensureLedger, openOrder, get, byChannel, getDeliveryChannelId, saveDeliveryChannelId, patch, setProduct, couponsFor, reserveCoupon, releaseCoupon,
+    return { initialize, ensureLedger, openOrder, get, getToycode, listToycodes, validateToycode, saveToycode, byChannel, getDeliveryChannelId, saveDeliveryChannelId, patch, setProduct, couponsFor, reserveCoupon, releaseCoupon,
         beginCheckout, attachCheckout, checkoutFailed, clearCheckout, markPaid, claim, delivered, reportIssue, setRating, restockAccounts, removeAccounts, reservedAccounts, deliverStock,
         beginClose, finalizeClose, abandonCreation, listOrders, recoveryOrders, parts, transaction };
 }

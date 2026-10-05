@@ -5,11 +5,12 @@ const { createOrderStore, OrderError, toCents, requireOpen } = require('./orderS
 const { publicMessage } = require('./messageStyle');
 const { accountListings, parseAccountEntry, normalizeAccountCategory } = require('./accounts');
 const { shopTerms, paymentMethods } = require('./shopTerms');
+const { TOYCODE_EMOJI, TOYCODE_COLOR, resolveToycodeImage } = require('./toycodeImages');
 
 const money = cents => cents == null ? 'Awaiting quote' : `$${(cents / 100).toFixed(2)} USD`;
 const safeText = value => String(value ?? '').replace(/[`*_~|<>]/g, '').slice(0, 180);
 const orderColor = order => order.kind === 'boost' ? 0xFF73FA : order.kind === 'decoration' ? 0xA855F7 :
-    order.kind === 'account' ? 0xF1F5F9 : 0x14B8A6;
+    order.kind === 'account' ? 0xF1F5F9 : order.kind === 'toycode' ? TOYCODE_COLOR : 0x14B8A6;
 const COMMANDS = [
     { name: 'terms', description: 'Staff: post the shop terms, warranty and payment methods in this channel', type: 1 },
     { name: 'my-orders', description: 'View your saved orders and their progress', type: 1 },
@@ -41,7 +42,7 @@ function completedReceipt(order) {
     return new EmbedBuilder().setTitle(process.env.LIVE_DELIVERIES_TITLE || 'Stocked | New Completed Order!').setColor(0x57F287)
         .addFields(
             { name: 'Star Rating', value: `\`${rating}\`` },
-            { name: 'Product Purchased', value: `${product === 'Toy Code' ? '🍂' : '🎁'} \`${product}\`` },
+            { name: 'Product Purchased', value: `${order.kind === 'toycode' || product === 'Toy Code' ? TOYCODE_EMOJI : '🎁'} \`${product}\`` },
             { name: 'USD Spent', value: `\`$${((order.paidCents || 0) / 100).toFixed(2)}\`` },
             { name: 'Payment Method', value: `${paymentEmoji} \`${method}\`` },
             { name: 'Order Id', value: `\`${order.orderId}\`` }
@@ -141,6 +142,10 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             .setDescription(`Order **${order.orderId}**\n**${name}**\nTotal: **${money(order.totalCents)}**${details}` +
                 (order.coupon ? `\n\n${order.coupon.discountPct}% coupon reserved. It is consumed only after payment.` : ''))
             .setColor(order.coupon ? 0xFFD700 : orderColor(order));
+        if (order.kind === 'toycode') {
+            embed.setTitle(`${TOYCODE_EMOJI} Toycode Checkout`);
+            if (order.productImageUrl) embed.setImage(order.productImageUrl);
+        }
         const payment = new StringSelectMenuBuilder().setCustomId(`payment_select|${order.orderId}`).setPlaceholder('Choose your payment method...')
             .addOptions([
                 { label: 'Pay with Card (Stripe)', value: 'select_stripe', emoji: '<:stripe:1554263177829687398>' },
@@ -158,7 +163,8 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
 
     async function renderCheckout(order, interaction = null) {
         const coupons = await store.couponsFor(order.buyerId, order.orderId);
-        const payload = checkoutPayload(order, coupons);
+        const image = order.kind === 'toycode' ? await resolveToycodeImage(botClient, order) : null;
+        const payload = checkoutPayload({ ...order, productImageUrl: image }, coupons);
         if (interaction) await interaction.editReply(payload);
         else {
             const channel = await fetchChannel(order);
@@ -216,6 +222,13 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             else console.error(`Order ${order.orderId} needs staff assistance in channel ${channel.id}:`, error);
             throw error;
         }
+    }
+
+    async function createToycodeTicket(interaction, selection) {
+        const item = await store.getToycode(interaction.guildId, selection.itemId);
+        if (!item) throw new OrderError('This item is no longer listed. Refresh the shop.');
+        await createTicket(interaction, { kind: 'toycode', productKey: item.itemId,
+            productName: selection.title || item.title, baseCents: selection.priceCents });
     }
 
     async function notifyPaid(result) {
@@ -963,7 +976,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
     }
 
     return { initialize: store.initialize, commandDefinitions, handleInteraction, handleStripeEvent, handleReaction, startRecovery,
-        store, saveTranscript, archiveAndDelete, migrateTranscript, recover, reconcileCheckout, closeTicket };
+        store, createToycodeTicket, saveTranscript, archiveAndDelete, migrateTranscript, recover, reconcileCheckout, closeTicket };
 }
 
 module.exports = { createOrderRuntime, isStaff, assertAuthorized, money, completedReceipt, COMMANDS };

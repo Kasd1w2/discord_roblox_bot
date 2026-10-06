@@ -161,7 +161,10 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
                     .setLabel('Buy / Open Ticket').setStyle(ButtonStyle.Success))];
         }));
         const components = [header];
-        if (cards.length) components.push(container(cards.flat()));
+        components.push(container([
+    ...cards.flat(),
+    display(`-# Page ${session.page + 1} of ${pages}`)
+]));
         components.push(row(new StringSelectMenuBuilder().setCustomId(customId(session, 'sort')).setPlaceholder('Sort by price')
             .addOptions([
                 { label: 'Price: Low to High', value: 'asc', emoji: { name: '⬆️' }, default: session.sort === 'asc' },

@@ -106,7 +106,7 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
                 `**Shop terms**\nRead <#${TERMS_CHANNEL_ID}> before buying.\n\n` +
                 `${PRICE_EMOJI} Search by name, filter your budget, or sort prices either way. Click an item’s green Buy button to open your purchase ticket.`)
             .setColor(TOYCODE_COLOR)], components: [row(
-                new ButtonBuilder().setCustomId('toy_browse').setLabel('Browse Items').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('toy_browse').setLabel('Browse Items').setStyle(ButtonStyle.Primary).setEmoji('<a:shop1:1554264889491726377>'),
                 new ButtonBuilder().setCustomId('toy_search_public').setLabel('Search').setStyle(ButtonStyle.Secondary)
             )], allowedMentions: { parse: [] } };
     }

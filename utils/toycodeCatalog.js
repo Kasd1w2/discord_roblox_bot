@@ -12,9 +12,9 @@ const TERMS_CHANNEL_ID = '1555338590064746576';
 const SUPPORT_CHANNEL_ID = '1542544665969164308';
 const PRICE_RANGES = [
     { value: 'all', label: 'All prices', min: 0, max: Infinity },
-    { value: 'under100', label: '$0â€“$99.99', min: 0, max: 10000 },
-    { value: '100to500', label: '$100â€“$499.99', min: 10000, max: 50000 },
-    { value: '500to1000', label: '$500â€“$999.99', min: 50000, max: 100000 },
+    { value: 'under100', label: '$0–$99.99', min: 0, max: 10000 },
+    { value: '100to500', label: '$100–$499.99', min: 10000, max: 50000 },
+    { value: '500to1000', label: '$500–$999.99', min: 50000, max: 100000 },
     { value: '1000plus', label: '$1,000+', min: 100000, max: Infinity }
 ];
 const money = cents => `$${(cents / 100).toFixed(2)} USD`;
@@ -24,15 +24,56 @@ const row = (...components) => new ActionRowBuilder().addComponents(...component
 const display = content => ({ type: 10, content });
 const container = components => ({ type: 17, accent_color: TOYCODE_COLOR, components });
 
+function hasInvalidEmoji(error) {
+    return error && typeof error === 'object' && (error.code === 'COMPONENT_INVALID_EMOJI' ||
+        Object.values(error).some(value => hasInvalidEmoji(value)));
+}
+
+function removeRejectedEmojis(payload, errors) {
+    if (!payload || typeof payload !== 'object' || !errors || typeof errors !== 'object') return false;
+    let removed = false;
+    for (const [key, detail] of Object.entries(errors)) {
+        if (key === 'emoji' && hasInvalidEmoji(detail) && Object.hasOwn(payload, key)) {
+            delete payload.emoji;
+            removed = true;
+        } else if (key !== '_errors') removed = removeRejectedEmojis(payload[key], detail) || removed;
+    }
+    return removed;
+}
+
+function removeComponentEmojis(component) {
+    if (!component || typeof component !== 'object') return false;
+    let removed = Object.hasOwn(component, 'emoji');
+    if (removed) delete component.emoji;
+    for (const child of Object.values(component)) removed = removeComponentEmojis(child) || removed;
+    return removed;
+}
+
+async function sendShopPayload(send, payload) {
+    try { return await send(payload); }
+    catch (error) {
+        if (Number(error?.code) !== 50035 || (!hasInvalidEmoji(error.rawError?.errors) &&
+            !String(error.message).includes('COMPONENT_INVALID_EMOJI'))) throw error;
+        const retry = JSON.parse(JSON.stringify(payload));
+        const removed = removeRejectedEmojis(retry, error.rawError?.errors) || removeComponentEmojis(retry.components);
+        if (!removed) throw error;
+        // A rejected form creates no message. Retry once, preserving labels, IDs, styles and images.
+        return send(retry);
+    }
+}
+
 function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, createTicket,
     imageChannelId = process.env.TOYCODE_IMAGE_CHANNEL_ID }) {
-    console.info('Toycode shop loaded: GREEN_BUY_2026_10_06');
+    console.info('Toycode shop loaded: GREEN_BUY_EMOJI_FIX_2026_10_06');
     // Browsing never writes session state, searches or page clicks to MongoDB.
     const sessions = new Map();
     const customId = (session, action) => `toy|${session.id}|${action}`;
-    const button = (session, action, label, emoji, disabled = false) => new ButtonBuilder()
-        .setCustomId(customId(session, action)).setLabel(label).setEmoji(emoji)
-        .setStyle(ButtonStyle.Secondary).setDisabled(disabled);
+    const button = (session, action, label, emoji, disabled = false) => {
+        const result = new ButtonBuilder().setCustomId(customId(session, action)).setLabel(label)
+            .setStyle(ButtonStyle.Secondary).setDisabled(disabled);
+        if (emoji) result.setEmoji(emoji);
+        return result;
+    };
 
     function newSession(interaction) {
         for (const [id, session] of sessions) if (Date.now() - session.touched > SESSION_MS) sessions.delete(id);
@@ -58,15 +99,15 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
 
     function publicCatalog(title = 'Toycode Shop') {
         return { embeds: [new EmbedBuilder().setTitle(`${TOYCODE_EMOJI} ${text(title || 'Toycode Shop')}`)
-            .setDescription('Find your next Roblox accessory â€” browse the pictures, pick your item, and open a private purchase ticket.\n\n' +
+            .setDescription('Find your next Roblox accessory — browse the pictures, pick your item, and open a private purchase ticket.\n\n' +
                 '**Unclaimed & ready to redeem**\nUnused toy codes for you to redeem on your own Roblox account.\n\n' +
                 '**Private delivery**\nYour code is delivered in your ticket. You never need to share your Roblox password.\n\n' +
-                `**Need help?**\nIf your code doesnâ€™t work, open a ticket in <#${SUPPORT_CHANNEL_ID}> and staff will help you.\n\n` +
+                `**Need help?**\nIf your code doesn’t work, open a ticket in <#${SUPPORT_CHANNEL_ID}> and staff will help you.\n\n` +
                 `**Shop terms**\nRead <#${TERMS_CHANNEL_ID}> before buying.\n\n` +
-                `${PRICE_EMOJI} Search by name, filter your budget, or sort prices either way. Click an itemâ€™s green Buy button to open your purchase ticket.`)
+                `${PRICE_EMOJI} Search by name, filter your budget, or sort prices either way. Click an item’s green Buy button to open your purchase ticket.`)
             .setColor(TOYCODE_COLOR)], components: [row(
                 new ButtonBuilder().setCustomId('toy_browse').setLabel('Browse Items').setStyle(ButtonStyle.Primary),
-                new ButtonBuilder().setCustomId('toy_search_public').setLabel('Search').setEmoji('ðŸ”Ž').setStyle(ButtonStyle.Secondary)
+                new ButtonBuilder().setCustomId('toy_search_public').setLabel('Search').setStyle(ButtonStyle.Secondary)
             )], allowedMentions: { parse: [] } };
     }
 
@@ -78,8 +119,11 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
         const title = originalTitle.startsWith(TOYCODE_EMOJI) ? originalTitle.slice(TOYCODE_EMOJI.length).trim() : originalTitle;
         const payload = publicCatalog(title), expected = payload.embeds[0].toJSON();
         const current = message.embeds?.[0];
-        if (current?.title === expected.title && current?.description === expected.description && current?.color === expected.color) return;
-        try { await message.edit(payload); }
+        const search = message.components?.[0]?.components?.find(component =>
+            (component.customId || component.custom_id) === 'toy_search_public');
+        if (current?.title === expected.title && current?.description === expected.description &&
+            current?.color === expected.color && !search?.emoji) return;
+        try { await sendShopPayload(payload => message.edit(payload), payload); }
         catch { console.warn('Toycode shop welcome could not be refreshed. Repost it with /toycodes.'); }
     }
 
@@ -98,12 +142,12 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
         const quoteId = randomBytes(4).toString('hex');
         const purchaseId = action => customId(session, `${quoteId}|${action}`);
         const header = container([display(`## ${TOYCODE_EMOJI} Toycode Shop\n` +
-            'Unclaimed codes â€¢ Redeem on your own account\n' +
+            'Unclaimed codes • Redeem on your own account\n' +
             '-# Private delivery in your ticket. No Roblox password needed.\n\n' +
-            `If your code doesnâ€™t work, open a ticket in <#${SUPPORT_CHANNEL_ID}>. Read <#${TERMS_CHANNEL_ID}> before buying.\n\n` +
-            `${PRICE_EMOJI} **${range.label}** â€¢ Price ${session.sort === 'asc' ? 'low â†’ high' : 'high â†’ low'}` +
-            (session.query ? `\nðŸ”Ž Search: **${text(session.query)}**` : '') +
-            (current.length ? '\nUse an itemâ€™s green Buy button to open your purchase ticket.' : '\nNo matching items. Try another search or price range.') +
+            `If your code doesn’t work, open a ticket in <#${SUPPORT_CHANNEL_ID}>. Read <#${TERMS_CHANNEL_ID}> before buying.\n\n` +
+            `${PRICE_EMOJI} **${range.label}** • Price ${session.sort === 'asc' ? 'low → high' : 'high → low'}` +
+            (session.query ? `\n🔎 Search: **${text(session.query)}**` : '') +
+            (current.length ? '\nUse an item’s green Buy button to open your purchase ticket.' : '\nNo matching items. Try another search or price range.') +
             `\n-# Page ${session.page + 1} of ${pages}`)]);
         const cards = await Promise.all(current.map(async item => {
             const title = text(item.title) || 'Toycode item';
@@ -118,18 +162,18 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
         if (cards.length) components.push(container(cards.flat()));
         components.push(row(new StringSelectMenuBuilder().setCustomId(customId(session, 'sort')).setPlaceholder('Sort by price')
             .addOptions([
-                { label: 'Price: Low to High', value: 'asc', emoji: { name: 'â¬†ï¸' }, default: session.sort === 'asc' },
-                { label: 'Price: High to Low', value: 'desc', emoji: { name: 'â¬‡ï¸' }, default: session.sort === 'desc' }
+                { label: 'Price: Low to High', value: 'asc', emoji: { name: '⬆️' }, default: session.sort === 'asc' },
+                { label: 'Price: High to Low', value: 'desc', emoji: { name: '⬇️' }, default: session.sort === 'desc' }
             ])));
         components.push(row(new StringSelectMenuBuilder().setCustomId(customId(session, 'range')).setPlaceholder('Choose a price range')
             .addOptions(PRICE_RANGES.map(item => ({ label: item.label, value: item.value,
                 emoji: { name: 'price', id: '1554267169800585227' }, default: item.value === session.range })))));
         components.push(row(
-            button(session, 'prev', 'Previous', 'â—€ï¸', session.page === 0),
-            button(session, 'next', 'Next', 'â–¶ï¸', session.page >= pages - 1),
-            button(session, 'search', 'Search', 'ðŸ”Ž'),
-            button(session, 'reset', 'Reset Filters', 'ðŸ§¹'),
-            button(session, 'refresh', 'Refresh', 'ðŸ”„')
+            button(session, 'prev', 'Previous', '◀️', session.page === 0),
+            button(session, 'next', 'Next', '▶️', session.page >= pages - 1),
+            button(session, 'search', 'Search'),
+            button(session, 'reset', 'Reset Filters', '🧹'),
+            button(session, 'refresh', 'Refresh', '🔄')
         ));
         // A full five-item page uses 38 components, including nested accessories and buttons.
         session.shown = shown;
@@ -198,7 +242,7 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
             if (!channel?.isTextBased() || typeof channel.send !== 'function' || channel.guildId !== interaction.guildId) {
                 throw new OrderError('Choose a text channel in this shop server.');
             }
-            await channel.send(publicCatalog(interaction.options.getString('title')));
+            await sendShopPayload(payload => channel.send(payload), publicCatalog(interaction.options.getString('title')));
             await interaction.editReply({ content: `${TOYCODE_EMOJI} Toycode shop posted in <#${channel.id}>.` });
             return true;
         }
@@ -211,7 +255,7 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
             else {
                 await interaction.deferReply({ flags: 64 });
                 await refreshPublicCatalog(interaction);
-                await interaction.editReply(await listingPayload(session));
+                await sendShopPayload(payload => interaction.editReply(payload), await listingPayload(session));
             }
             return true;
         }
@@ -237,7 +281,7 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
             if (query.length > 80) throw new OrderError('Keep your search under 80 characters.');
             session.query = query; session.page = 0;
             await interaction.deferReply({ flags: 64 });
-            await interaction.editReply(await listingPayload(session));
+            await sendShopPayload(payload => interaction.editReply(payload), await listingPayload(session));
             return true;
         }
         if (action === 'sort' && interaction.isStringSelectMenu()) {
@@ -255,7 +299,7 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
         } else throw new OrderError('Open the toycode browser again from the shop.');
         interaction._shopUpdate = true;
         await interaction.deferUpdate();
-        await interaction.editReply(await listingPayload(session));
+        await sendShopPayload(payload => interaction.editReply(payload), await listingPayload(session));
         return true;
     }
 

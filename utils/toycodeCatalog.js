@@ -6,8 +6,8 @@ const { TOYCODE_EMOJI, TOYCODE_COLOR, resolveToycodeImage, savedToycodeImage } =
 
 const PAGE_SIZE = 5;
 const SESSION_MS = 30 * 60000;
+const COMPONENTS_V2 = 1 << 15;
 const PRICE_EMOJI = '<:price:1554267169800585227>';
-const ITEM_EMOJI = { name: 'toycode', id: '1556793052469657721' };
 const PRICE_RANGES = [
     { value: 'all', label: 'All prices', min: 0, max: Infinity },
     { value: 'under100', label: '$0–$99.99', min: 0, max: 10000 },
@@ -18,6 +18,9 @@ const PRICE_RANGES = [
 const money = cents => `$${(cents / 100).toFixed(2)} USD`;
 const text = value => String(value).replace(/[`*_~|<>@]/g, '').slice(0, 100);
 const row = (...components) => new ActionRowBuilder().addComponents(...components);
+// Raw API components keep this layout independent of the newer SDK builders.
+const display = content => ({ type: 10, content });
+const container = components => ({ type: 17, accent_color: TOYCODE_COLOR, components });
 
 function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, createTicket,
     imageChannelId = process.env.TOYCODE_IMAGE_CHANNEL_ID }) {
@@ -32,7 +35,7 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
         for (const [id, session] of sessions) if (Date.now() - session.touched > SESSION_MS) sessions.delete(id);
         while (sessions.size >= 1000) sessions.delete(sessions.keys().next().value);
         const session = { id: randomBytes(8).toString('hex'), owner: interaction.user.id, guildId: interaction.guildId,
-            query: '', range: 'all', sort: 'asc', page: 0, selected: null, shown: [], touched: Date.now() };
+            query: '', range: 'all', sort: 'asc', page: 0, shown: [], touched: Date.now() };
         sessions.set(session.id, session);
         return session;
     }
@@ -52,11 +55,13 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
 
     function publicCatalog(title = 'Toycode Shop') {
         return { embeds: [new EmbedBuilder().setTitle(`${TOYCODE_EMOJI} ${text(title || 'Toycode Shop')}`)
-            .setDescription(`${TOYCODE_EMOJI} Browse items and their pictures below.\n\n` +
-                `${PRICE_EMOJI} Search by name, choose a price range, and sort prices either way.\n` +
-                'Select an item to preview it and open your purchase ticket.')
+            .setDescription('Find your next Roblox accessory — browse the pictures, pick your item, and open a private purchase ticket.\n\n' +
+                '**Unclaimed & ready to redeem**\nUnused toy codes for you to redeem on your own Roblox account.\n\n' +
+                '**Private delivery**\nYour code is delivered in your ticket. You never need to share your Roblox password.\n\n' +
+                '**7-day warranty**\nToycode purchases include seven days of warranty from delivery. Contact staff in your ticket if you need help; `/terms` has the full policy.\n\n' +
+                `${PRICE_EMOJI} Search by name, filter your budget, or sort prices either way. Choose an item to go straight to checkout.`)
             .setColor(TOYCODE_COLOR)], components: [row(
-                new ButtonBuilder().setCustomId('toy_browse').setLabel('Browse Items').setEmoji(TOYCODE_EMOJI).setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('toy_browse').setLabel('Browse Items').setStyle(ButtonStyle.Primary),
                 new ButtonBuilder().setCustomId('toy_search_public').setLabel('Search').setEmoji('🔎').setStyle(ButtonStyle.Secondary)
             )], allowedMentions: { parse: [] } };
     }
@@ -71,24 +76,31 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
         const pages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
         session.page = Math.min(Math.max(session.page, 0), pages - 1);
         const current = items.slice(session.page * PAGE_SIZE, (session.page + 1) * PAGE_SIZE);
-        session.shown = current.map(item => item.itemId);
-        session.selected = null;
-        const header = new EmbedBuilder().setTitle(`${TOYCODE_EMOJI} Toycode Shop`).setColor(TOYCODE_COLOR)
-            .setDescription(`${PRICE_EMOJI} **${range.label}** • Price ${session.sort === 'asc' ? 'low → high' : 'high → low'}` +
-                (session.query ? `\n🔎 Search: **${text(session.query)}**` : '') +
-                (current.length ? '\nChoose an item from the dropdown to see its full picture.' : '\nNo matching items. Try another search or price range.'))
-            .setFooter({ text: `Page ${session.page + 1} of ${pages}` });
+        // Keep the displayed quote, so a later restock cannot silently change the purchase price or item.
+        const shown = current.map(item => ({ itemId: item.itemId, priceCents: item.priceCents, title: item.title }));
+        const quoteId = randomBytes(4).toString('hex');
+        const purchaseId = action => customId(session, `${quoteId}|${action}`);
+        const header = container([display('## Toycode Shop\n' +
+            'Unclaimed codes • Redeem on your own account • 7-day warranty\n' +
+            '-# Private delivery in your ticket. No Roblox password needed.\n\n' +
+            `${PRICE_EMOJI} **${range.label}** • Price ${session.sort === 'asc' ? 'low → high' : 'high → low'}` +
+            (session.query ? `\n🔎 Search: **${text(session.query)}**` : '') +
+            (current.length ? '\nChoose below or use an item’s Buy button to open your purchase ticket.' : '\nNo matching items. Try another search or price range.') +
+            `\n-# Page ${session.page + 1} of ${pages}`)]);
         const cards = await Promise.all(current.map(async item => {
-            const embed = new EmbedBuilder().setTitle(text(item.title) || 'Toycode item').setColor(TOYCODE_COLOR)
-                .setDescription(`${TOYCODE_EMOJI} ${PRICE_EMOJI} **${money(item.priceCents)}**`);
+            const title = text(item.title) || 'Toycode item';
+            const details = display(`### ${title}\n**${money(item.priceCents)}**`);
             const image = await resolveToycodeImage(botClient, item);
-            if (image) embed.setThumbnail(image);
-            return embed;
+            return [image ? { type: 9, components: [details],
+                accessory: { type: 11, media: { url: image }, description: title } } : details,
+                row(new ButtonBuilder().setCustomId(purchaseId(`buy|${item.itemId}`))
+                    .setLabel('Buy / Open Ticket').setStyle(ButtonStyle.Secondary))];
         }));
-        const components = [];
-        if (current.length) components.push(row(new StringSelectMenuBuilder().setCustomId(customId(session, 'item'))
-            .setPlaceholder('Choose an item to preview...').addOptions(current.map(item => ({
-                label: text(item.title) || 'Toycode item', description: money(item.priceCents), value: item.itemId, emoji: ITEM_EMOJI
+        const components = [header];
+        if (cards.length) components.push(container(cards.flat()));
+        if (current.length) components.push(row(new StringSelectMenuBuilder().setCustomId(purchaseId('item'))
+            .setPlaceholder('Choose an item to buy...').addOptions(current.map(item => ({
+                label: text(item.title) || 'Toycode item', description: money(item.priceCents), value: item.itemId
             })))));
         components.push(row(new StringSelectMenuBuilder().setCustomId(customId(session, 'sort')).setPlaceholder('Sort by price')
             .addOptions([
@@ -105,22 +117,11 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
             button(session, 'reset', 'Reset Filters', '🧹'),
             button(session, 'refresh', 'Refresh', '🔄')
         ));
-        return { content: null, embeds: [header, ...cards], components, allowedMentions: { parse: [] } };
-    }
-
-    async function previewPayload(session, itemId) {
-        const item = await store.getToycode(session.guildId, itemId);
-        if (!item) throw new OrderError('This item is no longer listed. Refresh the shop.');
-        session.selected = { itemId: item.itemId, priceCents: item.priceCents, title: item.title };
-        const embed = new EmbedBuilder().setTitle(`${TOYCODE_EMOJI} ${text(item.title)}`).setColor(TOYCODE_COLOR)
-            .setDescription(`${PRICE_EMOJI} **${money(item.priceCents)}**\n\nOpen a purchase ticket for this item below.`);
-        const image = await resolveToycodeImage(botClient, item);
-        if (image) embed.setImage(image);
-        return { content: null, embeds: [embed], components: [row(
-            new ButtonBuilder().setCustomId(customId(session, 'buy')).setLabel('Buy / Open Ticket')
-                .setEmoji(TOYCODE_EMOJI).setStyle(ButtonStyle.Success),
-            button(session, 'back', 'Back to Items', '◀️')
-        )], allowedMentions: { parse: [] } };
+        // A full five-item page uses exactly 40 components, including nested accessories and buttons.
+        session.shown = shown;
+        session.quoteId = quoteId;
+        return { flags: COMPONENTS_V2 | 64, content: null, embeds: [],
+            components: JSON.parse(JSON.stringify(components)), allowedMentions: { parse: [] } };
     }
 
     function searchModal(session) {
@@ -196,16 +197,22 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
             }
             return true;
         }
-        const [, sessionId, action] = id.split('|');
+        const [, sessionId, part, purchaseAction, buttonItemId] = id.split('|');
+        const quoted = /^[a-f0-9]{8}$/.test(part);
+        const action = quoted ? purchaseAction : part;
         const session = ownSession(interaction, sessionId);
         if (action === 'search' && interaction.isButton()) {
             await interaction.showModal(searchModal(session));
             return true;
         }
-        if (action === 'buy' && interaction.isButton()) {
-            if (!session.selected) throw new OrderError('Choose an item from the dropdown before opening a ticket.');
+        if ((action === 'buy' && interaction.isButton()) || (action === 'item' && interaction.isStringSelectMenu())) {
+            if (quoted && part !== session.quoteId) throw new OrderError('This shop page changed. Refresh the shop before choosing an item.');
+            const itemId = action === 'buy' ? buttonItemId : interaction.values[0];
+            const selection = session.shown.find(item => item.itemId === itemId);
+            if (!quoted || !selection) throw new OrderError('Choose an item from your current page.');
+            // Reply separately: leave the browser and its filters available to the buyer.
             await interaction.deferReply({ flags: 64 });
-            await createTicket(interaction, session.selected);
+            await createTicket(interaction, selection);
             return true;
         }
         if (action === 'query' && interaction.isModalSubmit()) {
@@ -216,11 +223,7 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
             await interaction.editReply(await listingPayload(session));
             return true;
         }
-        let itemId;
-        if (action === 'item' && interaction.isStringSelectMenu()) {
-            itemId = interaction.values[0];
-            if (!session.shown.includes(itemId)) throw new OrderError('Choose an item from your current page.');
-        } else if (action === 'sort' && interaction.isStringSelectMenu()) {
+        if (action === 'sort' && interaction.isStringSelectMenu()) {
             const sort = interaction.values[0];
             if (!['asc', 'desc'].includes(sort)) throw new OrderError('Choose a valid price sort.');
             session.sort = sort; session.page = 0;
@@ -228,14 +231,14 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
             const range = interaction.values[0];
             if (!PRICE_RANGES.some(item => item.value === range)) throw new OrderError('Choose a valid price range.');
             session.range = range; session.page = 0;
-        } else if (interaction.isButton() && ['prev', 'next', 'reset', 'refresh', 'back'].includes(action)) {
+        } else if (interaction.isButton() && ['prev', 'next', 'reset', 'refresh'].includes(action)) {
             if (action === 'prev') session.page--;
             if (action === 'next') session.page++;
             if (action === 'reset') { session.query = ''; session.range = 'all'; session.sort = 'asc'; session.page = 0; }
         } else throw new OrderError('Open the toycode browser again from the shop.');
         interaction._shopUpdate = true;
         await interaction.deferUpdate();
-        await interaction.editReply(itemId ? await previewPayload(session, itemId) : await listingPayload(session));
+        await interaction.editReply(await listingPayload(session));
         return true;
     }
 

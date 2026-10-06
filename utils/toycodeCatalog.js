@@ -100,7 +100,7 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
     function publicCatalog(title = 'Toycode Shop') {
         return { embeds: [new EmbedBuilder()
             .setDescription(
-                    `#${TOYCODE_EMOJI} **${title || 'Toycode Shop'}**\n` +
+    `# ${TOYCODE_EMOJI} **${title || 'Toycode Shop'}**\n` +
                     'Find your next Roblox accessory — browse the pictures, pick your item, and open a private purchase ticket.\n\n' +
                 '**Unclaimed & ready to redeem**\nUnused toy codes for you to redeem on your own Roblox account.\n\n' +
                 '**Private delivery**\nYour code is delivered in your ticket. You never need to share your Roblox password.\n\n' +

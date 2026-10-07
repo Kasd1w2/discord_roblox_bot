@@ -537,7 +537,7 @@ const boostRow = new ActionRowBuilder().addComponents(
                     { name: '\u200B', value: '\u200B', inline: true }
                 ];
 
-                if (robloxLink) embedFields.push({ name: '<a:folder:1554593038003609620> Rolimons Link', value: `[View item](${robloxLink})`, inline: false });
+                if (robloxLink) embedFields.push({ name: '<a:folder:1554593038003609620> Roblox Link', value: `[View item](${robloxLink})`, inline: false });
 
                 const listingEmbed = new EmbedBuilder()
                     .setTitle(productTitle.slice(0, 256))

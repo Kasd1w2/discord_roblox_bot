@@ -8,6 +8,7 @@ Extract `toycode-shop-update.zip` into your existing bot project and replace the
 - `utils/orderStore.js`
 - `utils/toycodeCatalog.js` (new)
 - `utils/toycodeImages.js` (new)
+- `utils/catalogLinks.js` (new)
 
 Restart the bot. Startup registers `/toycodes` and the updated `/restock` options in your existing configured guild. Keep your existing models, package.json, environment variables, account/category files, `utils/helpers.js` and `utils/botStatus.js`. No new npm dependency or MongoDB cluster is needed.
 
@@ -43,20 +44,20 @@ Provide all three toycode fields:
 /restock title:Golden Horns price:250 image_url:https://example.com/horns.png
 ```
 
-Add an optional `catalog_url` with the item's Rolimons link:
+Add an optional `catalog_url` with the item's Roblox link:
 
 ```text
-/restock title:Golden Horns price:250 image_url:https://example.com/horns.png catalog_url:https://www.rolimons.com/item/123456789
+/restock title:Golden Horns price:250 image_url:https://example.com/horns.png catalog_url:https://www.roblox.com/catalog/123456789
 ```
 
-The toycode browser shows a clickable **View on Rolimons** link immediately below the price. Use an HTTPS item URL from `rolimons.com` or `www.rolimons.com`.
+The toycode browser shows a clickable **View on Roblox** link immediately below the price. Use an HTTPS catalog item URL from `roblox.com` or `www.roblox.com`, such as `https://www.roblox.com/catalog/123456789/Golden-Horns`. Item names and tracking parameters are removed when saving, leaving the canonical Roblox catalog link. Previously saved Rolimons item links also display as the corresponding Roblox catalog links without changing the listing's other data.
 
 ### Add or change a link on an existing item
 
 Use the item's **Stock ID** from the original restock confirmation (also shown by `/stock` for items with inventory):
 
 ```text
-/restock item_id:golden_horns catalog_url:https://www.rolimons.com/item/123456789
+/restock item_id:golden_horns catalog_url:https://www.roblox.com/catalog/123456789
 ```
 
 This updates the existing listing in this server without reposting the shop or uploading the image again. Its title, price, saved image, creation date and private codes stay intact. You can optionally include `codes` to add stock at the same time. An unknown stock ID returns an error instead of creating an incomplete listing. Refresh or reopen the browser to see the updated link; currently open pages update when refreshed. Restocking a full listing later without `catalog_url` preserves its existing link. Restart/redeploy the bot with the updated code so Discord synchronizes the new `/restock` option.
@@ -95,4 +96,4 @@ Coupons, Stripe with the existing 5% fee, Crypto and other payment methods use t
 
 ## Verification
 
-Run `npm test` for the included offline regression tests. They exercise the real store and catalog functions using an in-memory database adapter and Discord interaction fixtures: Rolimons URL validation, ID-based updates, preservation of listing data and private stock, new listings, link rendering and browser refresh. No live Discord, Stripe or MongoDB credentials are needed. These tests do not validate live service connections.
+Run `npm test` for the included offline regression tests. They exercise the real store and catalog functions using an in-memory database adapter and Discord interaction fixtures: Roblox URL validation, ID-based updates, preservation of listing data and private stock, new listings, link rendering and browser refresh. No live Discord, Stripe or MongoDB credentials are needed. These tests do not validate live service connections.

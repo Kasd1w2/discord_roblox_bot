@@ -3,6 +3,7 @@ const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelect
     ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const { OrderError } = require('./orderStore');
 const { TOYCODE_EMOJI, TOYCODE_COLOR, resolveToycodeImage, savedToycodeImage } = require('./toycodeImages');
+const { savedRobloxCatalogUrl } = require('./catalogLinks');
 
 const PAGE_SIZE = 5;
 const SESSION_MS = 30 * 60000;
@@ -18,7 +19,10 @@ const PRICE_RANGES = [
     { value: '1000plus', label: '$1,000+', min: 100000, max: Infinity }
 ];
 const money = cents => `$${(cents / 100).toFixed(2)} USD`;
-const catalogLink = item => item.catalogUrl ? `\n[View on Rolimons](${item.catalogUrl})` : '';
+const catalogLink = item => {
+    const url = savedRobloxCatalogUrl(item.catalogUrl);
+    return url ? `\n[View on Roblox](${url})` : '';
+};
 const text = value => String(value).replace(/[`*_~|<>@]/g, '').slice(0, 100);
 const row = (...components) => new ActionRowBuilder().addComponents(...components);
 // Raw API components keep this layout independent of the newer SDK builders.
@@ -202,13 +206,13 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
         const codes = (interaction.options.getString('codes') || '').split(/[\r\n,]+|\s+/).map(code => code.trim()).filter(Boolean);
         if ([input.title, input.price, input.imageUrl].every(value => value == null) && input.catalogUrl != null) {
             const result = await store.updateToycodeCatalogUrl(input, codes);
-            await interaction.editReply({ content: `${TOYCODE_EMOJI} Updated the Rolimons link for **${text(result.item.title)}**.\n` +
+            await interaction.editReply({ content: `${TOYCODE_EMOJI} Updated the Roblox link for **${text(result.item.title)}**.\n` +
                 `Stock ID: \`${result.item.itemId}\`${catalogLink(result.item)}\nRefresh or reopen the toycode browser to see it.` +
                 (result.added ? `\nAdded ${result.added} private code(s).` : '') });
             return result;
         }
         if (!input.title || input.price == null || !input.imageUrl) {
-            throw new OrderError('For toycode listings, provide all three: title, price, and image_url. To update only the Rolimons link, provide item_id and catalog_url.');
+            throw new OrderError('For toycode listings, provide all three: title, price, and image_url. To update only the Roblox link, provide item_id and catalog_url.');
         }
         const item = store.validateToycode(input);
         const file = await downloadImage(item.imageUrl);

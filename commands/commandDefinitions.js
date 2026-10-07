@@ -22,7 +22,7 @@ module.exports = [
                 { name: 'User:Password', value: 'User:Password Delivery' }
             ))
         .addStringOption(opt => opt.setName('image_url').setDescription('Thumbnail / Image URL (Optional)').setRequired(false))
-        .addStringOption(opt => opt.setName('catalog_url').setDescription('Rolimons link (Optional)').setRequired(false)),
+        .addStringOption(opt => opt.setName('catalog_url').setDescription('Roblox item link (Optional)').setRequired(false)),
 
     new SlashCommandBuilder()
         .setName('my-codes')
@@ -34,13 +34,13 @@ module.exports = [
 
     new SlashCommandBuilder()
         .setName('restock')
-        .setDescription('Add stock, list a toycode, or update its Rolimons link by stock ID (Admin)')
+        .setDescription('Add stock, list a toycode, or update its Roblox link by stock ID (Admin)')
         .addStringOption(opt => opt.setName('item_id').setDescription('Stock ID; optional for toycode listings').setRequired(false))
         .addStringOption(opt => opt.setName('codes').setDescription('Account lines or private codes; optional for toycode listings').setRequired(false))
         .addStringOption(opt => opt.setName('title').setDescription('Toycode item title').setMaxLength(100).setRequired(false))
         .addNumberOption(opt => opt.setName('price').setDescription('Toycode price in USD').setMinValue(0.01).setRequired(false))
         .addStringOption(opt => opt.setName('image_url').setDescription('Direct toycode image link (PNG, JPG, GIF or WebP)').setMaxLength(2000).setRequired(false))
-        .addStringOption(opt => opt.setName('catalog_url').setDescription('Rolimons item link; use item_id to update an existing toycode').setMaxLength(2000).setRequired(false)),
+        .addStringOption(opt => opt.setName('catalog_url').setDescription('Roblox catalog item link; use item_id to update an existing toycode').setMaxLength(2000).setRequired(false)),
 
     new SlashCommandBuilder()
         .setName('toycodes')

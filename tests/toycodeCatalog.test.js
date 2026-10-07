@@ -4,8 +4,8 @@ const { createOrderStore, OrderError } = require('../utils/orderStore');
 const { createToycodeCatalog } = require('../utils/toycodeCatalog');
 
 const GUILD = 'shop-server';
-const LINK = 'https://www.rolimons.com/item/123456789';
-const OTHER_LINK = 'https://rolimons.com/item/987654321';
+const LINK = 'https://www.roblox.com/catalog/123456789';
+const OTHER_LINK = 'https://www.roblox.com/catalog/987654321';
 const listing = () => ({ guildId: GUILD, itemId: 'golden_horns', title: 'Golden Horns', priceCents: 25000,
     active: true, imageUrl: 'https://example.com/horns.png', imageChannelId: 'images',
     imageMessageId: 'original-image', imageAttachmentId: 'attachment', createdAt: new Date('2026-01-01') });
@@ -85,7 +85,7 @@ function cardContent(payload) {
     return card.type === 9 ? card.components[0].content : card.content;
 }
 
-test('restock registers an optional Rolimons link', () => {
+test('restock registers an optional Roblox link', () => {
     const command = require('../commands/commandDefinitions').find(command => command.name === 'restock').toJSON();
     const option = command.options.find(option => option.name === 'catalog_url');
     assert.equal(option.type, 3);
@@ -103,7 +103,7 @@ test('new listings save a validated link and preserve private stock', async () =
     assert.equal(result.item.imageMessageId, 'new-image');
     assert.equal(result.added, 1);
     assert.deepEqual(db.snapshot().inventory[0].codes, ['PRIVATE-ORIGINAL', 'PRIVATE-NEW']);
-    assert.match(uploads[0].embeds[0].toJSON().description, /\*\*\$250\.00 USD\*\*\n\[View on Rolimons\]/);
+    assert.match(uploads[0].embeds[0].toJSON().description, /\*\*\$250\.00 USD\*\*\n\[View on Roblox\]/);
     assert(!JSON.stringify(uploads).includes('PRIVATE-'));
 });
 
@@ -181,18 +181,19 @@ test('partial listing changes return a clear error instead of silently discardin
     assert.equal((await db.store.getToycode(GUILD, 'golden_horns')).priceCents, 25000);
 });
 
-test('invalid Rolimons links are rejected before changing stock or uploading an image', async () => {
+test('invalid Roblox links are rejected before changing stock or uploading an image', async () => {
     const db = databaseFixture();
     const before = db.snapshot();
     const { catalog, channel, downloaded } = catalogFixture(db.store);
-    for (const catalog_url of ['not a url', 'javascript:alert(1)', 'http://www.rolimons.com/item/123',
-        'https://rolimons.com.evil.example/item/123', 'https://evil.example/item/123',
-        'https://user:password@www.rolimons.com/item/123', 'https://www.rolimons.com:8443/item/123',
-        'https://www.rolimons.com/player/123', 'https://www.rolimons.com/item/not-an-id']) {
+    for (const catalog_url of ['not a url', 'javascript:alert(1)', 'http://www.roblox.com/catalog/123',
+        'https://roblox.com.evil.example/catalog/123', 'https://evil.example/catalog/123',
+        'https://user:password@www.roblox.com/catalog/123', 'https://www.roblox.com:8443/catalog/123',
+        'https://www.roblox.com/player/123', 'https://www.roblox.com/catalog/not-an-id',
+        'https://www.rolimons.com/item/123456789']) {
         for (const metadata of [{}, { title: 'Golden Horns', price: 250, image_url: 'https://example.com/horns.png' }]) {
             await assert.rejects(catalog.restock(restockInteraction(channel, {
                 item_id: 'golden_horns', catalog_url, codes: 'NEW', ...metadata
-            })), error => error instanceof OrderError && /Rolimons item link/.test(error.message));
+            })), error => error instanceof OrderError && /Roblox catalog item link/.test(error.message));
         }
     }
     assert.deepEqual(db.snapshot(), before);
@@ -202,15 +203,44 @@ test('invalid Rolimons links are rejected before changing stock or uploading an 
 test('valid links are normalized for safe clickable Markdown', async () => {
     const db = databaseFixture();
     const result = await db.store.updateToycodeCatalogUrl({ guildId: GUILD, itemId: 'golden_horns',
-        catalogUrl: ' https://www.rolimons.com/item/123456789?tracking=hello(world)#details ' });
+        catalogUrl: ' https://www.roblox.com/catalog/123456789?tracking=hello(world)#details ' });
     assert.equal(result.item.catalogUrl, LINK);
+});
+
+test('Roblox catalog links accept item names, bare hosts and trailing slashes', async () => {
+    const db = databaseFixture();
+    for (const catalogUrl of ['https://www.roblox.com/catalog/123456789/Golden-Horns',
+        'https://roblox.com/catalog/123456789/',
+        'https://www.roblox.com/catalog/123456789/Golden-Horns-(Accessory)?tracking=1#details']) {
+        const result = await db.store.updateToycodeCatalogUrl({ guildId: GUILD, itemId: 'golden_horns', catalogUrl });
+        assert.equal(result.item.catalogUrl, LINK);
+    }
+});
+
+test('previously saved Rolimons item links display as Roblox links without rewriting listings', async () => {
+    const legacyLink = 'https://www.rolimons.com/item/123456789';
+    const db = databaseFixture([{ ...listing(), catalogUrl: legacyLink }]);
+    const before = db.snapshot();
+    const { catalog } = catalogFixture(db.store);
+    const { payload } = await openBrowser(catalog);
+    assert(cardContent(payload).includes(`**$250.00 USD**\n[View on Roblox](${LINK})`));
+    assert(!JSON.stringify(payload).includes('rolimons.com'));
+    assert.deepEqual(db.snapshot(), before);
+});
+
+test('unsupported saved links are not labeled as Roblox links', async () => {
+    const db = databaseFixture([{ ...listing(), catalogUrl: 'https://evil.example/item/123456789' }]);
+    const { catalog } = catalogFixture(db.store);
+    const { payload } = await openBrowser(catalog);
+    assert(!cardContent(payload).includes('View on Roblox'));
+    assert(!JSON.stringify(payload).includes('evil.example'));
 });
 
 test('browsing shows the clickable link directly below the price and retains the image and Buy button', async () => {
     const db = databaseFixture([{ ...listing(), catalogUrl: LINK }]);
     const { catalog } = catalogFixture(db.store);
     const { payload } = await openBrowser(catalog);
-    assert(cardContent(payload).includes(`**$250.00 USD**\n[View on Rolimons](${LINK})`));
+    assert(cardContent(payload).includes(`**$250.00 USD**\n[View on Roblox](${LINK})`));
     assert.equal(payload.components[1].components[0].accessory.media.url, 'https://cdn.discordapp.com/original.png');
     assert.equal(payload.components[1].components[1].components[0].label, 'Buy / Open Ticket');
     assert(!JSON.stringify(payload).includes('PRIVATE-ORIGINAL'));
@@ -220,17 +250,17 @@ test('old listings without links still render, and refresh picks up an ID-based 
     const db = databaseFixture();
     const { catalog } = catalogFixture(db.store);
     const { payload, interaction } = await openBrowser(catalog);
-    assert(!cardContent(payload).includes('Rolimons'));
+    assert(!cardContent(payload).includes('Roblox'));
     await db.store.updateToycodeCatalogUrl({ guildId: GUILD, itemId: 'golden_horns', catalogUrl: LINK });
     const refresh = payload.components.at(-1).components.find(component => component.label === 'Refresh');
     let refreshed;
     await catalog.handleInteraction({ ...interaction, customId: refresh.custom_id,
         deferUpdate: async () => {}, editReply: async next => { refreshed = next; } });
-    assert(cardContent(refreshed).includes(`[View on Rolimons](${LINK})`));
+    assert(cardContent(refreshed).includes(`[View on Roblox](${LINK})`));
     await db.store.updateToycodeCatalogUrl({ guildId: GUILD, itemId: 'golden_horns', catalogUrl: OTHER_LINK });
     await catalog.handleInteraction({ ...interaction, customId: refresh.custom_id,
         deferUpdate: async () => {}, editReply: async next => { refreshed = next; } });
-    assert(cardContent(refreshed).includes(`[View on Rolimons](${OTHER_LINK})`));
+    assert(cardContent(refreshed).includes(`[View on Roblox](${OTHER_LINK})`));
     assert(!cardContent(refreshed).includes(LINK));
 });
 
@@ -239,5 +269,5 @@ test('a listing remains clickable even if its image source is unavailable', asyn
     const { catalog } = catalogFixture(db.store, { botClient: { channels: { fetch: async () => { throw new Error('Missing image'); } } } });
     const { payload } = await openBrowser(catalog);
     assert.equal(payload.components[1].components[0].type, 10);
-    assert(cardContent(payload).includes(`[View on Rolimons](${LINK})`));
+    assert(cardContent(payload).includes(`[View on Roblox](${LINK})`));
 });

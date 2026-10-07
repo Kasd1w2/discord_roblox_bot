@@ -1,5 +1,6 @@
 const { randomBytes, createHash } = require('node:crypto');
 const { normalizeAccountCategory, parseAccountEntry, parseAccountRestock } = require('./accounts');
+const { robloxCatalogUrl } = require('./catalogLinks');
 
 class OrderError extends Error {
     constructor(message, existingOrder = null) {
@@ -9,15 +10,10 @@ class OrderError extends Error {
     }
 }
 
-function validateRolimonsUrl(value) {
-    let url;
-    try { url = new URL(String(value).trim()); } catch { /* Report the same error for every invalid link. */ }
-    if (!url || url.protocol !== 'https:' || !['rolimons.com', 'www.rolimons.com'].includes(url.hostname) ||
-        url.username || url.password || url.port || !/^\/item\/\d+\/?$/.test(url.pathname) || url.href.length > 2000) {
-        throw new OrderError('Use a Rolimons item link such as https://www.rolimons.com/item/123456789.');
-    }
-    // Item links need no tracking parameters or fragment; keep the Markdown destination safe.
-    return `${url.origin}${url.pathname}`;
+function validateRobloxUrl(value) {
+    const url = robloxCatalogUrl(value);
+    if (!url) throw new OrderError('Use a Roblox catalog item link such as https://www.roblox.com/catalog/123456789.');
+    return url;
 }
 
 function toCents(value) {
@@ -196,7 +192,7 @@ function createOrderStore({ connection, Ledger, Inventory, cooldownSeconds = 30,
             throw new OrderError('Use a stock ID with up to 64 letters, digits, underscores or hyphens, separate from account categories.');
         }
         return { guildId: input.guildId, itemId, title, priceCents, imageUrl: image.href,
-            ...(input.catalogUrl != null ? { catalogUrl: validateRolimonsUrl(input.catalogUrl) } : {}) };
+            ...(input.catalogUrl != null ? { catalogUrl: validateRobloxUrl(input.catalogUrl) } : {}) };
     }
 
     async function saveToycode(input, codes = []) {
@@ -223,8 +219,8 @@ function createOrderStore({ connection, Ledger, Inventory, cooldownSeconds = 30,
 
     async function updateToycodeCatalogUrl(input, codes = []) {
         const itemId = input.itemId?.trim();
-        if (!input.guildId || !itemId) throw new OrderError('Provide item_id to update an existing toycode’s Rolimons link.');
-        const catalogUrl = validateRolimonsUrl(input.catalogUrl);
+        if (!input.guildId || !itemId) throw new OrderError('Provide item_id to update an existing toycode’s Roblox link.');
+        const catalogUrl = validateRobloxUrl(input.catalogUrl);
         return transaction(async session => {
             const filter = { guildId: input.guildId, itemId, active: true };
             if (!await toycodeItems().findOne(filter, { session })) {

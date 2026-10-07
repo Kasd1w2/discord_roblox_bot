@@ -109,6 +109,16 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             ).setTimestamp(order.createdAt);
     }
 
+    function purchasedItem(order) {
+        return `<a:box:1554592797733163099> **Product:** ${safeText(order.productName || formatProductName(order.productKey))}`;
+    }
+
+    function paidCheckoutPayload(order) {
+        return publicMessage(`Order **${order.orderId}** has been paid.\n${purchasedItem(order)}\n` +
+            `<:price:1554267169800585227> **Paid:** ${money(order.paidCents)}\nStaff will deliver your order.`,
+            { title: '✅ Payment Confirmed', color: 0x57F287, components: [] });
+    }
+
     function buyerRow(order) {
         return new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId(`buyer_order|cancel|${order.orderId}`).setLabel('Cancel Order').setStyle(ButtonStyle.Danger)
@@ -198,7 +208,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
                 ]
             });
             const saved = await store.patch(order.orderId, { channelId: channel.id });
-            await channel.send(publicMessage(`Welcome, <@${order.buyerId}>!\nYour order ID is **${order.orderId}**.\nOur staff will help you here.`,
+            await channel.send(publicMessage(`Welcome, <@${order.buyerId}>!\nYour order ID is **${order.orderId}**.\n${purchasedItem(saved)}\nOur staff will help you here.`,
                 { title: '🎫 Your Order Ticket', color: orderColor(order), users: [order.buyerId], roles: [adminRoleId] }));
             if (input.kind === 'boost' || input.kind === 'decoration') {
                 const choices = input.kind === 'boost' ? boostPackages.map(([key, label]) => ({ label, value: key, emoji: '<a:boostlogo:1554263092244906005>' })) :
@@ -234,7 +244,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
     async function notifyPaid(result) {
         const order = result.order;
         if (order.paymentNoticeSent) { await retireStaffPanel(order); return; }
-        const text = `Order **${order.orderId}**\n` +
+        const text = `Order **${order.orderId}**\n${purchasedItem(order)}\n` +
             `<@${order.buyerId}> paid **${money(order.paidCents)}** using **${safeText(order.paymentMethod)}**.\n` +
             `<a:MTF_Credits:1554593086544412803> Earned **${order.pointsEarned} points**.\n` +
             `<@&${adminRoleId}> Manual delivery is required${order.kind === 'decoration' ? ' via gift link' : ''}.`;
@@ -246,9 +256,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
                 users: [order.buyerId], roles: [adminRoleId], nonce: order.orderId.replace('ORD-', ''), enforceNonce: true }));
             await retireStaffPanel(order);
             if (order.checkoutMessageId) {
-                try { await (await channel.messages.fetch(order.checkoutMessageId)).edit(publicMessage(
-                    `Order **${order.orderId}** has been paid.\nStaff will deliver your order.`,
-                    { title: '✅ Payment Confirmed', color: 0x57F287, components: [] })); }
+                try { await (await channel.messages.fetch(order.checkoutMessageId)).edit(paidCheckoutPayload(order)); }
                 catch (error) { if (error.code !== 10008) throw error; }
             }
         } else {
@@ -289,8 +297,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
     async function stripeCheckout(order, interaction) {
         requireOpen(order);
         order = await reconcileCheckout(order);
-        if (order.paymentStatus === 'paid') { await interaction.editReply(publicMessage('This order is already paid. Staff will handle delivery.',
-            { title: '✅ Payment Confirmed', color: 0x57F287, components: [] })); return; }
+        if (order.paymentStatus === 'paid') { await interaction.editReply(paidCheckoutPayload(order)); return; }
         if (!order.totalCents) throw new OrderError('Staff must confirm a price before checkout.');
         let checkout;
         if (order.stripeSessionId) checkout = await stripe.checkout.sessions.retrieve(order.stripeSessionId);
@@ -303,7 +310,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
                     payment_method_types: ['card'], mode: 'payment',
                     expires_at: lockedOrder.checkoutCreateExpiresAt,
                     line_items: [{ price_data: { currency: 'usd', unit_amount: finalCents,
-                        product_data: { name: formatProductName(lockedOrder.productKey) + ' (+5% Processing Fee)' } }, quantity: 1 }],
+                        product_data: { name: safeText(lockedOrder.productName || formatProductName(lockedOrder.productKey)) + ' (+5% Processing Fee)' } }, quantity: 1 }],
                     success_url: 'https://discord.com', cancel_url: 'https://discord.com',
                     metadata: { order_id: lockedOrder.orderId, discord_user_id: lockedOrder.buyerId,
                         item_id: lockedOrder.productKey, channel_id: lockedOrder.channelId }
@@ -320,7 +327,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             }
         }
         const embed = new EmbedBuilder().setTitle('💳 Stripe Card Checkout').setColor(0x635BFF)
-            .setDescription(`Order **${order.orderId}**\nTotal: **${money(checkout.amount_total)}**, including the 5% processing fee.\n` +
+            .setDescription(`Order **${order.orderId}**\n${purchasedItem(order)}\nTotal: **${money(checkout.amount_total)}**, including the 5% processing fee.\n` +
                 'Staff will deliver manually after payment confirmation.\nCheckout expires in about 30 minutes; an unused coupon is released on expiry.');
         const pay = new ButtonBuilder().setLabel(`Pay ${money(checkout.amount_total)}`).setURL(checkout.url).setStyle(ButtonStyle.Link);
         const expire = new ButtonBuilder().setCustomId(`expire_checkout|${order.orderId}`).setLabel('Change Payment Method').setStyle(ButtonStyle.Secondary);
@@ -847,7 +854,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
                 if (method === 'select_crypto') {
                     const amounts = await getCryptoAmounts(order.totalCents / 100);
                     const embed = new EmbedBuilder().setTitle('🪙 Crypto Payment Gateway').setColor(0xF7931A)
-                        .setDescription(`Order **${order.orderId}** • **${money(order.totalCents)}**\nStaff verifies payments and delivers manually.\n` +
+                        .setDescription(`Order **${order.orderId}** • **${money(order.totalCents)}**\n${purchasedItem(order)}\nStaff verifies payments and delivers manually.\n` +
                             'Confirm the live amount and network with staff before sending. These amounts are a snapshot.');
                     const wallets = [['ETH', amounts.eth, '0x42d01fE1f89C6cDE28ef7a34Ef5A7B452eD6B271'], ['LTC', amounts.ltc, 'MWSeYJ3qgm3j5yYGGFimu5ebSzHA9oUvBy'],
                         ['BTC', amounts.btc, '34hRphphvMtvqiWPawAESR1bxkfvUoFNhh'], ['SOL', amounts.sol, '222P8wKAC2s2UcfNyANYre8yVKjU1c3C3MA7mYqK92ZB']];
@@ -856,7 +863,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
                     await interaction.editReply({ content: null, embeds: [embed], components: [new ActionRowBuilder().addComponents(tx), buyerRow(order)] });
                 } else {
                     await interaction.editReply({ content: null, embeds: [new EmbedBuilder().setTitle('💳 Other Payment Methods').setColor(0x5865F2)
-                        .setDescription(`Order **${order.orderId}** • **${money(order.totalCents)}**\nTell staff what you would like to pay with (PayPal, Limiteds, or another method).\nStaff confirms payment before delivery.`)],
+                        .setDescription(`Order **${order.orderId}** • **${money(order.totalCents)}**\n${purchasedItem(order)}\nTell staff what you would like to pay with (PayPal, Limiteds, or another method).\nStaff confirms payment before delivery.`)],
                         components: [buyerRow(order)] });
                 }
                 await retireStaffPanel(order);
@@ -876,7 +883,7 @@ function createOrderRuntime({ mongoose, botClient, stripe, Inventory, Ledger, ad
             requireOpen(order);
             const hash = interaction.fields.getTextInputValue('tx_hash_input').trim();
             await store.patch(order.orderId, { transactionHash: hash });
-            await interaction.channel.send(publicMessage(`<@${order.buyerId}> submitted payment proof for **${order.orderId}**.\n` +
+            await interaction.channel.send(publicMessage(`<@${order.buyerId}> submitted payment proof for **${order.orderId}**.\n${purchasedItem(order)}\n` +
                 `\`\`\`${hash.replace(/`/g, '')}\`\`\`\nStaff will verify the transaction.`,
                 { title: '🧾 Payment Proof Submitted', color: 0xF7931A, users: [order.buyerId], roles: [adminRoleId] }));
             await interaction.editReply({ content: 'Transaction hash saved. Staff will verify it; submission does not confirm payment.' });

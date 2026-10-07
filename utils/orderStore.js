@@ -1,6 +1,6 @@
 const { randomBytes, createHash } = require('node:crypto');
 const { normalizeAccountCategory, parseAccountEntry, parseAccountRestock } = require('./accounts');
-const { robloxCatalogUrl } = require('./catalogLinks');
+const { robloxUrl } = require('./catalogLinks');
 
 class OrderError extends Error {
     constructor(message, existingOrder = null) {
@@ -11,8 +11,8 @@ class OrderError extends Error {
 }
 
 function validateRobloxUrl(value) {
-    const url = robloxCatalogUrl(value);
-    if (!url) throw new OrderError('Use a Roblox catalog item link such as https://www.roblox.com/catalog/123456789.');
+    const url = robloxUrl(value);
+    if (!url) throw new OrderError('Use a Roblox link from https://roblox.com/ or https://www.roblox.com/.');
     return url;
 }
 

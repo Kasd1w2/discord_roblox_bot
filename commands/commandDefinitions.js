@@ -22,7 +22,7 @@ module.exports = [
                 { name: 'User:Password', value: 'User:Password Delivery' }
             ))
         .addStringOption(opt => opt.setName('image_url').setDescription('Thumbnail / Image URL (Optional)').setRequired(false))
-        .addStringOption(opt => opt.setName('catalog_url').setDescription('Roblox item link (Optional)').setRequired(false)),
+        .addStringOption(opt => opt.setName('catalog_url').setDescription('Roblox link (Optional)').setRequired(false)),
 
     new SlashCommandBuilder()
         .setName('my-codes')
@@ -40,7 +40,7 @@ module.exports = [
         .addStringOption(opt => opt.setName('title').setDescription('Toycode item title').setMaxLength(100).setRequired(false))
         .addNumberOption(opt => opt.setName('price').setDescription('Toycode price in USD').setMinValue(0.01).setRequired(false))
         .addStringOption(opt => opt.setName('image_url').setDescription('Direct toycode image link (PNG, JPG, GIF or WebP)').setMaxLength(2000).setRequired(false))
-        .addStringOption(opt => opt.setName('catalog_url').setDescription('Roblox catalog item link; use item_id to update an existing toycode').setMaxLength(2000).setRequired(false)),
+        .addStringOption(opt => opt.setName('catalog_url').setDescription('Roblox link (roblox.com/); use item_id to update an existing toycode').setMaxLength(2000).setRequired(false)),
 
     new SlashCommandBuilder()
         .setName('toycodes')

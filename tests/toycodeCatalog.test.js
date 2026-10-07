@@ -188,33 +188,54 @@ test('invalid Roblox links are rejected before changing stock or uploading an im
     for (const catalog_url of ['not a url', 'javascript:alert(1)', 'http://www.roblox.com/catalog/123',
         'https://roblox.com.evil.example/catalog/123', 'https://evil.example/catalog/123',
         'https://user:password@www.roblox.com/catalog/123', 'https://www.roblox.com:8443/catalog/123',
-        'https://www.roblox.com/player/123', 'https://www.roblox.com/catalog/not-an-id',
         'https://www.rolimons.com/item/123456789']) {
         for (const metadata of [{}, { title: 'Golden Horns', price: 250, image_url: 'https://example.com/horns.png' }]) {
             await assert.rejects(catalog.restock(restockInteraction(channel, {
                 item_id: 'golden_horns', catalog_url, codes: 'NEW', ...metadata
-            })), error => error instanceof OrderError && /Roblox catalog item link/.test(error.message));
+            })), error => error instanceof OrderError && /Roblox link/.test(error.message));
         }
     }
     assert.deepEqual(db.snapshot(), before);
     assert.equal(downloaded.length, 0);
 });
 
-test('valid links are normalized for safe clickable Markdown', async () => {
+test('links retain their query and fragment and render safely in clickable Markdown', async () => {
     const db = databaseFixture();
+    const link = 'https://www.roblox.com/catalog/123456789?tracking=hello(world)#details';
     const result = await db.store.updateToycodeCatalogUrl({ guildId: GUILD, itemId: 'golden_horns',
-        catalogUrl: ' https://www.roblox.com/catalog/123456789?tracking=hello(world)#details ' });
-    assert.equal(result.item.catalogUrl, LINK);
+        catalogUrl: ` ${link} ` });
+    assert.equal(result.item.catalogUrl, link);
+    const { catalog } = catalogFixture(db.store);
+    const { payload } = await openBrowser(catalog);
+    assert(cardContent(payload).includes('[View on Roblox](https://www.roblox.com/catalog/123456789?tracking=hello%28world%29#details)'));
 });
 
-test('Roblox catalog links accept item names, bare hosts and trailing slashes', async () => {
+test('Roblox links preserve the provided host and path, including non-catalog pages', async () => {
     const db = databaseFixture();
     for (const catalogUrl of ['https://www.roblox.com/catalog/123456789/Golden-Horns',
         'https://roblox.com/catalog/123456789/',
+        'https://www.roblox.com/users/123/profile', 'https://www.roblox.com/share?code=abc&type=AvatarItemDetails',
         'https://www.roblox.com/catalog/123456789/Golden-Horns-(Accessory)?tracking=1#details']) {
         const result = await db.store.updateToycodeCatalogUrl({ guildId: GUILD, itemId: 'golden_horns', catalogUrl });
-        assert.equal(result.item.catalogUrl, LINK);
+        assert.equal(result.item.catalogUrl, catalogUrl);
     }
+});
+
+test('root Roblox links work in new listings and stock-ID updates without adding catalog', async () => {
+    const db = databaseFixture();
+    const { catalog, channel } = catalogFixture(db.store);
+    for (const [input, expected] of [['https://roblox.com/', 'https://roblox.com/'],
+        ['https://www.roblox.com/', 'https://www.roblox.com/'], ['roblox.com/', 'https://roblox.com/']]) {
+        const result = await catalog.restock(restockInteraction(channel, { item_id: 'golden_horns', catalog_url: input }));
+        assert.equal(result.item.catalogUrl, expected);
+        const { payload } = await openBrowser(catalog);
+        assert(cardContent(payload).includes(`[View on Roblox](${expected})`));
+        assert(!cardContent(payload).includes('/catalog'));
+    }
+    const result = await catalog.restock(restockInteraction(channel, {
+        item_id: 'new_item', title: 'New Item', price: 100, image_url: 'https://example.com/item.png', catalog_url: 'https://roblox.com/'
+    }));
+    assert.equal(result.item.catalogUrl, 'https://roblox.com/');
 });
 
 test('previously saved Rolimons item links display as Roblox links without rewriting listings', async () => {

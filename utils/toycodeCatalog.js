@@ -3,7 +3,7 @@ const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelect
     ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const { OrderError } = require('./orderStore');
 const { TOYCODE_EMOJI, TOYCODE_COLOR, resolveToycodeImage, savedToycodeImage } = require('./toycodeImages');
-const { savedRobloxCatalogUrl } = require('./catalogLinks');
+const { savedRobloxUrl } = require('./catalogLinks');
 
 const PAGE_SIZE = 5;
 const SESSION_MS = 30 * 60000;
@@ -20,8 +20,8 @@ const PRICE_RANGES = [
 ];
 const money = cents => `$${(cents / 100).toFixed(2)} USD`;
 const catalogLink = item => {
-    const url = savedRobloxCatalogUrl(item.catalogUrl);
-    return url ? `\n[View on Roblox](${url})` : '';
+    const url = savedRobloxUrl(item.catalogUrl);
+    return url ? `\n[View on Roblox](${url.replace(/\(/g, '%28').replace(/\)/g, '%29')})` : '';
 };
 const text = value => String(value).replace(/[`*_~|<>@]/g, '').slice(0, 100);
 const row = (...components) => new ActionRowBuilder().addComponents(...components);

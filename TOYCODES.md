@@ -47,17 +47,17 @@ Provide all three toycode fields:
 Add an optional `catalog_url` with the item's Roblox link:
 
 ```text
-/restock title:Golden Horns price:250 image_url:https://example.com/horns.png catalog_url:https://www.roblox.com/catalog/123456789
+/restock title:Golden Horns price:250 image_url:https://example.com/horns.png catalog_url:https://roblox.com/
 ```
 
-The toycode browser shows a clickable **View on Roblox** link immediately below the price. Use an HTTPS catalog item URL from `roblox.com` or `www.roblox.com`, such as `https://www.roblox.com/catalog/123456789/Golden-Horns`. Item names and tracking parameters are removed when saving, leaving the canonical Roblox catalog link. Previously saved Rolimons item links also display as the corresponding Roblox catalog links without changing the listing's other data.
+The toycode browser shows a clickable **View on Roblox** link immediately below the price. Any HTTPS link on `roblox.com` or `www.roblox.com` is accepted, including `https://roblox.com/`. The supplied host, path, query parameters and fragment are retained; no `/catalog` path is added. You can also enter `roblox.com/` without the scheme; it is saved with `https://`. Previously saved Rolimons item links continue to display as the corresponding Roblox catalog links without changing the listing's other data.
 
 ### Add or change a link on an existing item
 
 Use the item's **Stock ID** from the original restock confirmation (also shown by `/stock` for items with inventory):
 
 ```text
-/restock item_id:golden_horns catalog_url:https://www.roblox.com/catalog/123456789
+/restock item_id:golden_horns catalog_url:https://roblox.com/
 ```
 
 This updates the existing listing in this server without reposting the shop or uploading the image again. Its title, price, saved image, creation date and private codes stay intact. You can optionally include `codes` to add stock at the same time. An unknown stock ID returns an error instead of creating an incomplete listing. Refresh or reopen the browser to see the updated link; currently open pages update when refreshed. Restocking a full listing later without `catalog_url` preserves its existing link. Restart/redeploy the bot with the updated code so Discord synchronizes the new `/restock` option.

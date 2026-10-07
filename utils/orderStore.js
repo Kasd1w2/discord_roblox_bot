@@ -9,6 +9,17 @@ class OrderError extends Error {
     }
 }
 
+function validateRolimonsUrl(value) {
+    let url;
+    try { url = new URL(String(value).trim()); } catch { /* Report the same error for every invalid link. */ }
+    if (!url || url.protocol !== 'https:' || !['rolimons.com', 'www.rolimons.com'].includes(url.hostname) ||
+        url.username || url.password || url.port || !/^\/item\/\d+\/?$/.test(url.pathname) || url.href.length > 2000) {
+        throw new OrderError('Use a Rolimons item link such as https://www.rolimons.com/item/123456789.');
+    }
+    // Item links need no tracking parameters or fragment; keep the Markdown destination safe.
+    return `${url.origin}${url.pathname}`;
+}
+
 function toCents(value) {
     const amount = Number(value);
     const cents = Math.round(amount * 100);
@@ -184,7 +195,8 @@ function createOrderStore({ connection, Ledger, Inventory, cooldownSeconds = 30,
         if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(itemId) || normalizeAccountCategory(itemId)) {
             throw new OrderError('Use a stock ID with up to 64 letters, digits, underscores or hyphens, separate from account categories.');
         }
-        return { guildId: input.guildId, itemId, title, priceCents, imageUrl: image.href };
+        return { guildId: input.guildId, itemId, title, priceCents, imageUrl: image.href,
+            ...(input.catalogUrl != null ? { catalogUrl: validateRolimonsUrl(input.catalogUrl) } : {}) };
     }
 
     async function saveToycode(input, codes = []) {
@@ -206,6 +218,28 @@ function createOrderStore({ connection, Ledger, Inventory, cooldownSeconds = 30,
                     { $set: { codes: [...(stock?.codes || []), ...codes] } }, { upsert: true, session });
             }
             return { item: await toycodeItems().findOne({ guildId: item.guildId, itemId: item.itemId }, { session }), added: codes.length };
+        });
+    }
+
+    async function updateToycodeCatalogUrl(input, codes = []) {
+        const itemId = input.itemId?.trim();
+        if (!input.guildId || !itemId) throw new OrderError('Provide item_id to update an existing toycode’s Rolimons link.');
+        const catalogUrl = validateRolimonsUrl(input.catalogUrl);
+        return transaction(async session => {
+            const filter = { guildId: input.guildId, itemId, active: true };
+            if (!await toycodeItems().findOne(filter, { session })) {
+                throw new OrderError('No toycode listing found with that stock ID in this server. Check item_id, or create it with title, price and image_url.');
+            }
+            await settings().updateOne({ _id: `toycode:${input.guildId}:${itemId}` },
+                { $inc: { version: 1 } }, { upsert: true, session });
+            // Patch only the link: existing title, price, image references and stock stay intact.
+            await toycodeItems().updateOne(filter, { $set: { catalogUrl, updatedAt: new Date() } }, { session });
+            if (codes.length) {
+                const stock = await inventory().findOne({ itemId }, { session });
+                await inventory().updateOne({ itemId },
+                    { $set: { codes: [...(stock?.codes || []), ...codes] } }, { upsert: true, session });
+            }
+            return { item: await toycodeItems().findOne(filter, { session }), added: codes.length };
         });
     }
     async function byChannel(channelId) { return orders().findOne({ channelId }); }
@@ -526,7 +560,7 @@ function createOrderStore({ connection, Ledger, Inventory, cooldownSeconds = 30,
         ] }).sort({ updatedAt: 1 }).limit(100).toArray();
     }
 
-    return { initialize, ensureLedger, openOrder, get, getToycode, listToycodes, validateToycode, saveToycode, byChannel, getDeliveryChannelId, saveDeliveryChannelId, patch, setProduct, couponsFor, reserveCoupon, releaseCoupon,
+    return { initialize, ensureLedger, openOrder, get, getToycode, listToycodes, validateToycode, saveToycode, updateToycodeCatalogUrl, byChannel, getDeliveryChannelId, saveDeliveryChannelId, patch, setProduct, couponsFor, reserveCoupon, releaseCoupon,
         beginCheckout, attachCheckout, checkoutFailed, clearCheckout, markPaid, claim, delivered, reportIssue, setRating, restockAccounts, removeAccounts, reservedAccounts, deliverStock,
         beginClose, finalizeClose, abandonCreation, listOrders, recoveryOrders, parts, transaction };
 }

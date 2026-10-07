@@ -601,10 +601,8 @@ const boostRow = new ActionRowBuilder().addComponents(
             const toyTitle = interaction.options.getString('title');
             const toyPrice = interaction.options.getNumber('price');
             const toyImage = interaction.options.getString('image_url');
-            if ([toyTitle, toyPrice, toyImage].some(value => value != null)) {
-                if (!toyTitle || toyPrice == null || !toyImage) {
-                    throw new OrderError('For toycode listings, provide all three: title, price, and image_url.');
-                }
+            const toyCatalogUrl = interaction.options.getString('catalog_url');
+            if ([toyTitle, toyPrice, toyImage, toyCatalogUrl].some(value => value != null)) {
                 await toycodeCatalog.restock(interaction);
                 return;
             }

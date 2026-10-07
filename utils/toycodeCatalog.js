@@ -18,6 +18,7 @@ const PRICE_RANGES = [
     { value: '1000plus', label: '$1,000+', min: 100000, max: Infinity }
 ];
 const money = cents => `$${(cents / 100).toFixed(2)} USD`;
+const catalogLink = item => item.catalogUrl ? `\n[View on Rolimons](${item.catalogUrl})` : '';
 const text = value => String(value).replace(/[`*_~|<>@]/g, '').slice(0, 100);
 const row = (...components) => new ActionRowBuilder().addComponents(...components);
 // Raw API components keep this layout independent of the newer SDK builders.
@@ -153,7 +154,7 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
             `\n-# Page ${session.page + 1} of ${pages}`)]);
         const cards = await Promise.all(current.map(async item => {
             const title = text(item.title) || 'Toycode item';
-            const details = display(`### ${TOYCODE_EMOJI} ${title}\n**${money(item.priceCents)}**`);
+            const details = display(`### ${TOYCODE_EMOJI} ${title}\n**${money(item.priceCents)}**${catalogLink(item)}`);
             const image = await resolveToycodeImage(botClient, item);
             return [image ? { type: 9, components: [details],
                 accessory: { type: 11, media: { url: image }, description: title } } : details,
@@ -197,7 +198,18 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
     async function restock(interaction) {
         const input = { guildId: interaction.guildId, title: interaction.options.getString('title'),
             price: interaction.options.getNumber('price'), imageUrl: interaction.options.getString('image_url'),
-            itemId: interaction.options.getString('item_id') };
+            itemId: interaction.options.getString('item_id'), catalogUrl: interaction.options.getString('catalog_url') };
+        const codes = (interaction.options.getString('codes') || '').split(/[\r\n,]+|\s+/).map(code => code.trim()).filter(Boolean);
+        if ([input.title, input.price, input.imageUrl].every(value => value == null) && input.catalogUrl != null) {
+            const result = await store.updateToycodeCatalogUrl(input, codes);
+            await interaction.editReply({ content: `${TOYCODE_EMOJI} Updated the Rolimons link for **${text(result.item.title)}**.\n` +
+                `Stock ID: \`${result.item.itemId}\`${catalogLink(result.item)}\nRefresh or reopen the toycode browser to see it.` +
+                (result.added ? `\nAdded ${result.added} private code(s).` : '') });
+            return result;
+        }
+        if (!input.title || input.price == null || !input.imageUrl) {
+            throw new OrderError('For toycode listings, provide all three: title, price, and image_url. To update only the Rolimons link, provide item_id and catalog_url.');
+        }
         const item = store.validateToycode(input);
         const file = await downloadImage(item.imageUrl);
         const target = imageChannelId ? await interaction.guild.channels.fetch(imageChannelId) : interaction.channel;
@@ -207,7 +219,7 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
         // Keep a durable Discord attachment source. Only metadata and message
         // references go into MongoDB; codes never appear in this image post.
         const imagePost = await target.send({ embeds: [new EmbedBuilder().setTitle(`${TOYCODE_EMOJI} ${text(item.title)}`)
-            .setDescription(`${PRICE_EMOJI} **${money(item.priceCents)}**`).setColor(TOYCODE_COLOR)
+            .setDescription(`${PRICE_EMOJI} **${money(item.priceCents)}**${catalogLink(item)}`).setColor(TOYCODE_COLOR)
             .setImage(`attachment://${file.name}`)], files: [file], allowedMentions: { parse: [] } });
         let result;
         try {
@@ -219,7 +231,6 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
                 image = savedToycodeImage(savedPost, { filename: file.name });
             }
             if (!image) throw new OrderError('The uploaded image could not be resolved. Use a fresh direct image link and try again.');
-            const codes = (interaction.options.getString('codes') || '').split(/[\r\n,]+|\s+/).map(code => code.trim()).filter(Boolean);
             result = await store.saveToycode({ ...input, imageChannelId: target.id,
                 imageMessageId: imagePost.id, imageAttachmentId: image.id }, codes);
         } catch (error) {

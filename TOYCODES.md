@@ -43,6 +43,24 @@ Provide all three toycode fields:
 /restock title:Golden Horns price:250 image_url:https://example.com/horns.png
 ```
 
+Add an optional `catalog_url` with the item's Rolimons link:
+
+```text
+/restock title:Golden Horns price:250 image_url:https://example.com/horns.png catalog_url:https://www.rolimons.com/item/123456789
+```
+
+The toycode browser shows a clickable **View on Rolimons** link immediately below the price. Use an HTTPS item URL from `rolimons.com` or `www.rolimons.com`.
+
+### Add or change a link on an existing item
+
+Use the item's **Stock ID** from the original restock confirmation (also shown by `/stock` for items with inventory):
+
+```text
+/restock item_id:golden_horns catalog_url:https://www.rolimons.com/item/123456789
+```
+
+This updates the existing listing in this server without reposting the shop or uploading the image again. Its title, price, saved image, creation date and private codes stay intact. You can optionally include `codes` to add stock at the same time. An unknown stock ID returns an error instead of creating an incomplete listing. Refresh or reopen the browser to see the updated link; currently open pages update when refreshed. Restocking a full listing later without `catalog_url` preserves its existing link. Restart/redeploy the bot with the updated code so Discord synchronizes the new `/restock` option.
+
 Use a public direct PNG, JPG, GIF or WebP file under 6 MB. Prices must be positive USD amounts with up to two decimal places. Titles support up to 100 characters. Invalid metadata or a failed image download leaves the catalog unchanged.
 
 The private confirmation gives you the stock ID. Restocking the same title in the same server updates its listing instead of creating a duplicate (case-insensitive). To rename an existing item or connect it to a stock ID you already use, supply `item_id`:
@@ -77,4 +95,4 @@ Coupons, Stripe with the existing 5% fee, Crypto and other payment methods use t
 
 ## Verification
 
-All 87 offline tests and JavaScript syntax checks passed. Tests cover range boundaries, search combined with sorting/paging, more than 25 items, images, restocking validation, private-code protection, ownership/guild checks, stale quotes, ticket creation, Stripe/coupon/points behavior and staff delivery, plus the existing account, ticket and transcript flows. Live Discord, Stripe and MongoDB connections were not tested.
+Run `npm test` for the included offline regression tests. They exercise the real store and catalog functions using an in-memory database adapter and Discord interaction fixtures: Rolimons URL validation, ID-based updates, preservation of listing data and private stock, new listings, link rendering and browser refresh. No live Discord, Stripe or MongoDB credentials are needed. These tests do not validate live service connections.

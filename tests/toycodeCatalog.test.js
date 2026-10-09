@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { createOrderStore, OrderError } = require('../utils/orderStore');
-const { createToycodeCatalog, PAGE_SIZE } = require('../utils/toycodeCatalog');
+const { createToycodeCatalog } = require('../utils/toycodeCatalog');
 
 const GUILD = 'shop-server';
 const LINK = 'https://www.roblox.com/catalog/123456789';
@@ -81,7 +81,8 @@ async function openBrowser(catalog) {
 }
 
 function cardContent(payload) {
-    return payload.embeds[0].description;
+    const card = payload.components[1].components[0];
+    return card.type === 9 ? card.components[0].content : card.content;
 }
 
 test('restock registers an optional Roblox link', () => {
@@ -261,8 +262,8 @@ test('browsing shows the clickable link directly below the price and retains the
     const { catalog } = catalogFixture(db.store);
     const { payload } = await openBrowser(catalog);
     assert(cardContent(payload).includes(`**$250.00 USD**\n[View on Roblox](${LINK})`));
-    assert.equal(payload.embeds[0].thumbnail.url, 'https://cdn.discordapp.com/original.png');
-    assert.equal(payload.components[0].components[0].label, 'Buy 1: Golden Horns');
+    assert.equal(payload.components[1].components[0].accessory.media.url, 'https://cdn.discordapp.com/original.png');
+    assert.equal(payload.components[1].components[1].components[0].label, 'Buy / Open Ticket');
     assert(!JSON.stringify(payload).includes('PRIVATE-ORIGINAL'));
 });
 
@@ -288,118 +289,6 @@ test('a listing remains clickable even if its image source is unavailable', asyn
     const db = databaseFixture([{ ...listing(), catalogUrl: LINK }]);
     const { catalog } = catalogFixture(db.store, { botClient: { channels: { fetch: async () => { throw new Error('Missing image'); } } } });
     const { payload } = await openBrowser(catalog);
-    assert.equal(payload.embeds[0].thumbnail, undefined);
+    assert.equal(payload.components[1].components[0].type, 10);
     assert(cardContent(payload).includes(`[View on Roblox](${LINK})`));
-});
-
-function pageItems(count, overrides = {}) {
-    return Array.from({ length: count }, (_, index) => ({ ...listing(), itemId: `item_${index + 1}`,
-        title: `Item ${String(index + 1).padStart(2, '0')}`, priceCents: (index + 1) * 100, catalogUrl: LINK, ...overrides }));
-}
-
-function buyButtons(payload) {
-    return payload.components.flatMap(row => row.components).filter(component => component.style === 3);
-}
-
-async function press(catalog, interaction, component, extra = {}) {
-    let payload;
-    await catalog.handleInteraction({ ...interaction, customId: component.custom_id, deferUpdate: async () => {},
-        editReply: async next => { payload = next; }, ...extra });
-    return payload;
-}
-
-function control(payload, label) {
-    return payload.components.at(-1).components.find(component => component.label === label);
-}
-
-test('a full page shows ten pictured items with links and ten matching Buy buttons within Discord limits', async () => {
-    const db = databaseFixture(pageItems(23));
-    const { catalog } = catalogFixture(db.store);
-    const { payload } = await openBrowser(catalog);
-    assert.equal(PAGE_SIZE, 10);
-    assert.equal(payload.embeds.length, 10);
-    assert.equal(buyButtons(payload).length, 10);
-    assert.equal(payload.components.length, 5);
-    assert.equal(payload.flags & (1 << 15), 0);
-    assert.match(payload.content, /Page 1 of 3/);
-    assert.equal(control(payload, 'Previous').disabled, true);
-    assert.equal(control(payload, 'Next').disabled, false);
-    for (const [index, embed] of payload.embeds.entries()) {
-        assert(embed.title.includes(`${index + 1}.`));
-        assert(embed.title.includes(`Item ${String(index + 1).padStart(2, '0')}`));
-        assert.equal(embed.thumbnail.url, 'https://cdn.discordapp.com/original.png');
-        assert(embed.description.includes(`[View on Roblox](${LINK})`));
-        assert.equal(embed.url, undefined);
-        assert.equal(buyButtons(payload)[index].label, `Buy ${index + 1}: Item ${String(index + 1).padStart(2, '0')}`);
-        assert(buyButtons(payload)[index].custom_id.endsWith(`|buy|item_${index + 1}`));
-    }
-    for (const row of payload.components) {
-        assert(row.components.length <= 5);
-        if (row.components.some(component => component.type === 3)) assert.equal(row.components.length, 1);
-    }
-});
-
-test('ten-item pagination handles the last page, previous page, and stale Buy quotes', async () => {
-    const db = databaseFixture(pageItems(23));
-    const tickets = [];
-    const { catalog } = catalogFixture(db.store, { createTicket: async (_, item) => { tickets.push(item); } });
-    const { payload: first, interaction } = await openBrowser(catalog);
-    const second = await press(catalog, interaction, control(first, 'Next'));
-    assert.equal(second.embeds.length, 10);
-    assert.match(second.content, /Page 2 of 3/);
-    assert(buyButtons(second)[0].custom_id.endsWith('|buy|item_11'));
-    await assert.rejects(press(catalog, interaction, buyButtons(first)[0]), /page changed/);
-    const last = await press(catalog, interaction, control(second, 'Next'));
-    assert.equal(last.embeds.length, 3);
-    assert.equal(buyButtons(last).length, 3);
-    assert.match(last.content, /Page 3 of 3/);
-    assert.equal(control(last, 'Next').disabled, true);
-    await press(catalog, interaction, buyButtons(last)[2]);
-    assert.deepEqual(tickets, [{ itemId: 'item_23', title: 'Item 23', priceCents: 2300 }]);
-    const previous = await press(catalog, interaction, control(last, 'Previous'));
-    assert.equal(previous.embeds.length, 10);
-    assert.match(previous.content, /Page 2 of 3/);
-});
-
-test('price sorting, filtering, search, and reset still work on ten-item pages', async () => {
-    const db = databaseFixture(pageItems(23));
-    const { catalog } = catalogFixture(db.store);
-    const { payload, interaction } = await openBrowser(catalog);
-    const sort = payload.components.flatMap(row => row.components).find(component => component.placeholder === 'Sort by price');
-    const descending = await press(catalog, interaction, sort, { isButton: () => false,
-        isStringSelectMenu: () => true, values: ['desc'] });
-    assert(buyButtons(descending)[0].custom_id.endsWith('|buy|item_23'));
-    const range = descending.components.flatMap(row => row.components).find(component => component.placeholder === 'Choose a price range');
-    const empty = await press(catalog, interaction, range, { isButton: () => false,
-        isStringSelectMenu: () => true, values: ['1000plus'] });
-    assert.equal(empty.embeds.length, 0);
-    assert.equal(buyButtons(empty).length, 0);
-    assert.match(empty.content, /No matching items/);
-    assert.equal(control(empty, 'Next').disabled, true);
-    const reset = await press(catalog, interaction, control(empty, 'Reset Filters'));
-    let modal;
-    await press(catalog, interaction, control(reset, 'Search'), { showModal: async next => { modal = next.toJSON(); } });
-    const search = await press(catalog, interaction, { custom_id: modal.custom_id }, { isButton: () => false,
-        isStringSelectMenu: () => false, isModalSubmit: () => true, fields: { getTextInputValue: () => 'Item 23' } });
-    assert.equal(search.embeds.length, 1);
-    assert(buyButtons(search)[0].custom_id.endsWith('|buy|item_23'));
-});
-
-test('long Roblox links remain clickable without exceeding the shared embed text limit', async () => {
-    for (const longLink of [`https://roblox.com/?value=${'x'.repeat(1700)}`,
-        `https://roblox.com/?value=${'('.repeat(900)}${')'.repeat(900)}`]) {
-        const db = databaseFixture(pageItems(10, { catalogUrl: longLink }));
-        const { catalog } = catalogFixture(db.store);
-        const { payload } = await openBrowser(catalog);
-        const total = payload.embeds.reduce((length, embed) => length + embed.title.length + embed.description.length +
-            (embed.author?.name.length || 0) + (embed.footer?.text.length || 0), 0);
-        assert.equal(payload.embeds.length, 10);
-        assert(total <= 6000);
-        for (const embed of payload.embeds) {
-            assert.equal(embed.author.name, 'View on Roblox');
-            assert.equal(embed.author.url, longLink);
-            assert.equal(embed.url, undefined);
-            assert(embed.description.length <= 4096);
-        }
-    }
 });

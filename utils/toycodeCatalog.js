@@ -5,8 +5,9 @@ const { OrderError } = require('./orderStore');
 const { TOYCODE_EMOJI, TOYCODE_COLOR, resolveToycodeImage, savedToycodeImage } = require('./toycodeImages');
 const { savedRobloxUrl } = require('./catalogLinks');
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 5;
 const SESSION_MS = 30 * 60000;
+const COMPONENTS_V2 = 1 << 15;
 const PRICE_EMOJI = '<:price:1554267169800585227>';
 const TERMS_CHANNEL_ID = '1555338590064746576';
 const SUPPORT_CHANNEL_ID = '1542544665969164308';
@@ -24,6 +25,9 @@ const catalogLink = item => {
 };
 const text = value => String(value).replace(/[`*_~|<>@]/g, '').slice(0, 100);
 const row = (...components) => new ActionRowBuilder().addComponents(...components);
+// Raw API components keep this layout independent of the newer SDK builders.
+const display = content => ({ type: 10, content });
+const container = components => ({ type: 17, accent_color: TOYCODE_COLOR, components });
 
 function hasInvalidEmoji(error) {
     return error && typeof error === 'object' && (error.code === 'COMPONENT_INVALID_EMOJI' ||
@@ -144,43 +148,28 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
         const shown = current.map(item => ({ itemId: item.itemId, priceCents: item.priceCents, title: item.title }));
         const quoteId = randomBytes(4).toString('hex');
         const purchaseId = action => customId(session, `${quoteId}|${action}`);
-        const header = `## ${TOYCODE_EMOJI} Toycode Shop\n` +
+        const header = container([display(`## ${TOYCODE_EMOJI} Toycode Shop\n` +
             'Unclaimed codes • Redeem on your own account\n' +
             '-# Private delivery in your ticket. No Roblox password needed.\n\n' +
             `If your code doesn’t work, open a ticket in <#${SUPPORT_CHANNEL_ID}>. Read <#${TERMS_CHANNEL_ID}> before buying.\n\n` +
             `${PRICE_EMOJI} **${range.label}** • Price ${session.sort === 'asc' ? 'low → high' : 'high → low'}` +
             (session.query ? `\n🔎 Search: **${text(session.query)}**` : '') +
-            (current.length ? '\nUse the matching numbered green Buy button below to open your purchase ticket.' : '\nNo matching items. Try another search or price range.') +
-            `\n-# Page ${session.page + 1} of ${pages}`;
-        const compactLink = (embed, item) => {
-            embed.setDescription(`**${money(item.priceCents)}**`);
-            const url = savedRobloxUrl(item.catalogUrl);
-            if (url) embed.setAuthor({ name: 'View on Roblox', url });
-        };
-        const embeds = await Promise.all(current.map(async (item, index) => {
+            (current.length ? '\nUse an item’s green Buy button to open your purchase ticket.' : '\nNo matching items. Try another search or price range.') +
+            `\n-# Page ${session.page + 1} of ${pages}`)]);
+        const cards = await Promise.all(current.map(async item => {
             const title = text(item.title) || 'Toycode item';
-            const embed = new EmbedBuilder().setTitle(`${index + 1}. ${TOYCODE_EMOJI} ${title}`).setColor(TOYCODE_COLOR);
-            const description = `**${money(item.priceCents)}**${catalogLink(item)}`;
-            if (description.length <= 4096) embed.setDescription(description);
-            else compactLink(embed, item);
+            const details = display(`### ${TOYCODE_EMOJI} ${title}\n**${money(item.priceCents)}**${catalogLink(item)}`);
             const image = await resolveToycodeImage(botClient, item);
-            if (image) embed.setThumbnail(image);
-            return embed;
+            return [image ? { type: 9, components: [details],
+                accessory: { type: 11, media: { url: image }, description: title } } : details,
+                row(new ButtonBuilder().setCustomId(purchaseId(`buy|${item.itemId}`))
+                    .setLabel('Buy / Open Ticket').setStyle(ButtonStyle.Success))];
         }));
-        // Discord supports ten embeds but only 6000 characters across them.
-        // Author links retain long destinations without consuming that text budget
-        // or deduplicating items that point to the same Roblox URL.
-        embeds.at(-1)?.setFooter({ text: `Page ${session.page + 1} of ${pages}` });
-        if (embeds.reduce((length, embed) => length + embed.length, 0) > 6000) {
-            embeds.forEach((embed, index) => compactLink(embed, current[index]));
-        }
-        const components = [];
-        for (let offset = 0; offset < current.length; offset += 5) {
-            components.push(row(...current.slice(offset, offset + 5).map((item, index) =>
-                new ButtonBuilder().setCustomId(purchaseId(`buy|${item.itemId}`))
-                    .setLabel(`Buy ${offset + index + 1}: ${text(item.title) || 'Toycode item'}`.slice(0, 80))
-                    .setStyle(ButtonStyle.Success))));
-        }
+        const components = [header];
+        components.push(container([
+    ...cards.flat(),
+    display(`-# Page ${session.page + 1} of ${pages}`)
+]));
         components.push(row(new StringSelectMenuBuilder().setCustomId(customId(session, 'sort')).setPlaceholder('Sort by price')
             .addOptions([
                 { label: 'Price: Low to High', value: 'asc', emoji: { name: '⬆️' }, default: session.sort === 'asc' },
@@ -196,10 +185,10 @@ function createToycodeCatalog({ store, botClient, adminRoleId, downloadImage, cr
             button(session, 'reset', 'Reset Filters', '🧹'),
             button(session, 'refresh', 'Refresh', '🔄')
         ));
-        // Two Buy rows plus sort, range and navigation fit the five-row limit.
+        // A full five-item page uses 38 components, including nested accessories and buttons.
         session.shown = shown;
         session.quoteId = quoteId;
-        return { flags: 64, content: header, embeds: embeds.map(embed => embed.toJSON()),
+        return { flags: COMPONENTS_V2 | 64, content: null, embeds: [],
             components: JSON.parse(JSON.stringify(components)), allowedMentions: { parse: [] } };
     }
 

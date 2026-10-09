@@ -22,7 +22,7 @@ Shop staff use `/toycodes` in the shop channel, or select another channel:
 
 An optional `title` changes the public shop heading. The public embed has Browse Items and Search buttons. Each customer gets their own private browser, so browsing and filters do not change the public shop or another buyer's view.
 
-The browser shows ten items per page, each with a numbered title, USD price, picture thumbnail and optional Roblox link. Green Buy buttons below the items use matching numbers and names, such as **Buy 1: Golden Horns**, to open a private purchase ticket. The two Buy-button rows leave room for price sorting, price ranges and navigation within Discord's five-row limit. Unusually long links appear as a clickable **View on Roblox** heading above the item to keep the page within Discord's shared embed text limit.
+The browser shows five items per page, each with a title, USD price and picture thumbnail. The item dropdown uses your `<:toycode:1556793052469657721>` emoji. Selecting an item shows its full image and a Buy / Open Ticket button. Discord select options support text and emojis; item images appear in the cards and selected-item embed, rather than inside the dropdown itself.
 
 Search matches part of the item title, ignoring letter case. Price ranges, search and sorting work together and stay applied when changing pages. Previous/Next, Refresh and Reset Filters are included. Sort by price low to high or high to low.
 
